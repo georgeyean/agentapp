@@ -14,14 +14,6 @@ CORS(app, resources={r"/subscribe": {"origins": "*"}})
 
 EMAIL_FILE = "subscribers.txt"
 RESEND_API_KEY = os.getenv("RESEND_API_KEY")
-if not RESEND_API_KEY:
-    # Fallback: read from .env file if systemd didn't load it
-    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
-    if os.path.exists(_env_path):
-        with open(_env_path) as _f:
-            for _line in _f:
-                if _line.startswith("RESEND_API_KEY="):
-                    RESEND_API_KEY = _line.strip().split("=", 1)[1].strip("\"'")
 
 
 def send_confirmation(to_email):
