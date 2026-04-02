@@ -2,9 +2,7 @@ from flask import Flask, request, jsonify
 import logging
 import re
 import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests as http_requests
 from flask_cors import CORS
 
 
@@ -15,23 +13,18 @@ app = Flask(__name__)
 CORS(app, resources={r"/subscribe": {"origins": "*"}})
 
 EMAIL_FILE = "subscribers.txt"
-EMAIL_USER = "georgeyean@gmail.com"
-EMAIL_PASS = os.getenv("EMAIL_PASS")
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+if not RESEND_API_KEY:
+    # Fallback: read from .env file if systemd didn't load it
+    _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if os.path.exists(_env_path):
+        with open(_env_path) as _f:
+            for _line in _f:
+                if _line.startswith("RESEND_API_KEY="):
+                    RESEND_API_KEY = _line.strip().split("=", 1)[1].strip("\"'")
 
 
 def send_confirmation(to_email):
-    msg = MIMEMultipart("alternative")
-    msg["From"] = "China Brief <georgeyean@gmail.com>"
-    msg["To"] = to_email
-    msg["Subject"] = "Welcome to China Brief"
-
-    text = (
-        "You're subscribed!\n\n"
-        "You'll receive daily briefings on the latest China news, "
-        "powered by AI analysis.\n\n"
-        "— China Brief"
-    )
-
     html = """\
     <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="font-size: 22px; color: #1a1a1a; margin-bottom: 24px;">
@@ -48,12 +41,21 @@ def send_confirmation(to_email):
     </div>
     """
 
-    msg.attach(MIMEText(text, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(EMAIL_USER, EMAIL_PASS)
-        server.send_message(msg)
+    resp = http_requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": "China Brief <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": "Welcome to China Brief",
+            "html": html,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
 
 # strict but reasonable email regex
 EMAIL_REGEX = re.compile(
