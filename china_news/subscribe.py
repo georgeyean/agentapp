@@ -55,7 +55,7 @@ def subscribe():
         print("Server write error")
         return jsonify({"error": "Server write error"}), 500
 
-    return jsonify({"status": "ok"}), 200
+    return jsonify({"success": True}), 200
 
 
 @app.route("/health", methods=["GET"])
@@ -64,4 +64,12 @@ def health():
 
 
 if __name__ == "__main__":
+  
+    #sudo vi /etc/systemd/system/subscribe.service
+    
+    #sudo systemctl daemon-reload
+    #sudo systemctl reset-failed subscribe
+    #sudo systemctl restart subscribe
+    #sudo systemctl status subscribe
+  
     app.run(host="0.0.0.0", port=8000, debug=True)
