@@ -2,6 +2,9 @@ from flask import Flask, request, jsonify
 import logging
 import re
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from flask_cors import CORS
 
 
@@ -12,6 +15,45 @@ app = Flask(__name__)
 CORS(app, resources={r"/subscribe": {"origins": "*"}})
 
 EMAIL_FILE = "subscribers.txt"
+EMAIL_USER = "georgeyean@gmail.com"
+EMAIL_PASS = os.getenv("EMAIL_PASS")
+
+
+def send_confirmation(to_email):
+    msg = MIMEMultipart("alternative")
+    msg["From"] = "China Brief <georgeyean@gmail.com>"
+    msg["To"] = to_email
+    msg["Subject"] = "Welcome to China Brief"
+
+    text = (
+        "You're subscribed!\n\n"
+        "You'll receive daily briefings on the latest China news, "
+        "powered by AI analysis.\n\n"
+        "— China Brief"
+    )
+
+    html = """\
+    <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; padding: 40px 20px;">
+      <h2 style="font-size: 22px; color: #1a1a1a; margin-bottom: 24px;">
+        You're subscribed.
+      </h2>
+      <p style="font-size: 16px; line-height: 1.6; color: #333;">
+        You'll receive daily briefings on the latest China news,
+        powered by AI analysis.
+      </p>
+      <hr style="border: none; border-top: 1px solid #ddd; margin: 32px 0;" />
+      <p style="font-size: 13px; color: #999;">
+        China Brief
+      </p>
+    </div>
+    """
+
+    msg.attach(MIMEText(text, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(EMAIL_USER, EMAIL_PASS)
+        server.send_message(msg)
 
 # strict but reasonable email regex
 EMAIL_REGEX = re.compile(
@@ -54,6 +96,11 @@ def subscribe():
     except OSError:
         print("Server write error")
         return jsonify({"error": "Server write error"}), 500
+
+    try:
+        send_confirmation(email)
+    except Exception as e:
+        app.logger.error(f"Confirmation email failed: {e}")
 
     return jsonify({"success": True}), 200
 
