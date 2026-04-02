@@ -24,7 +24,7 @@ def send_confirmation(to_email):
       </h2>
       <p style="font-size: 16px; line-height: 1.6; color: #333;">
         You'll receive daily briefings on the latest China news,
-        powered by AI analysis.
+        powered by AI.
       </p>
       <hr style="border: none; border-top: 1px solid #ddd; margin: 32px 0;" />
       <p style="font-size: 13px; color: #999;">
@@ -40,7 +40,7 @@ def send_confirmation(to_email):
             "Content-Type": "application/json",
         },
         json={
-            "from": "China Brief <onboarding@resend.dev>",
+            "from": "China Brief <gyean@fas.harvard.edu>",
             "to": [to_email],
             "subject": "Welcome to China Brief",
             "html": html,
