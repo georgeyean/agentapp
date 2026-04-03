@@ -13,6 +13,9 @@ from email.mime.multipart import MIMEMultipart
 import markdown
 import json
 import os, pdb
+from dotenv import load_dotenv
+
+load_dotenv()
 from collections import defaultdict
 
 
@@ -105,36 +108,64 @@ def render_email_html_from_json_string(json_str: str) -> str:
     for i in items:
         grouped[i["group"]].append(i)
 
-    COLORS = {"Politics":"#f7f3f2","Economy":"#f2f6f9","Geopolitics":"#f4f6f3"}
-    DEFAULT_BG = "#f7f7f7"
+    today = datetime.now().strftime("%B %d, %Y")
 
-    html = f"""<html><body style="margin:0;padding:0;background:#f4f5f7;">
-    <div style="max-width:780px;margin:0 auto;padding:24px;">
-    <div style="background:#fff;padding:2%;font-family:Arial,Helvetica,sans-serif;line-height:1.55;color:#111;">
-    <h2 style="margin:0 0 6px;font-size:20px;font-weight:700;">Daily China Brief </h2><h5> (powered by GPT4.1)</h5> """
+    ICONS = {"Politics": "🏛", "Economy": "📊", "Geopolitics": "🌏"}
+    ACCENTS = {"Politics": "#c0392b", "Economy": "#2471a3", "Geopolitics": "#1e8449"}
+    DEFAULT_ACCENT = "#555"
+
+    html = f"""<html><body style="margin:0;padding:0;background:#f0f0f0;">
+    <div style="max-width:600px;margin:0 auto;padding:16px;">
+    <div style="background:#ffffff;border-radius:8px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#222;">
+
+    <!-- Header -->
+    <div style="background:#1a1a2e;padding:24px 20px;text-align:center;">
+      <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">China Brief</h1>
+      <p style="margin:6px 0 0;font-size:13px;color:#8e8ea0;">{today} · AI-powered daily briefing</p>
+    </div>
+
+    <div style="padding:20px;">"""
 
     for g, news in grouped.items():
-        bg = COLORS.get(g, DEFAULT_BG)
-        html += f"""<div style="background:{bg};padding:14px 16px;margin-top:20px;border-radius:4px;">
-        <h3 style="margin:0 0 10px;padding-bottom:6px;font-size:16px;font-weight:700;border-bottom:1px solid #ddd;">{g}</h3>"""
-        
+        accent = ACCENTS.get(g, DEFAULT_ACCENT)
+        icon = ICONS.get(g, "📌")
+
+        html += f"""
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid {accent};">
+        <span style="font-size:18px;margin-right:8px;">{icon}</span>
+        <h2 style="margin:0;font-size:16px;font-weight:700;color:{accent};text-transform:uppercase;letter-spacing:0.5px;">{g}</h2>
+      </div>"""
+
         for n in news:
-            html += f"""<div style="margin-bottom:18px;">
-        <div style="font-size:14.5px;font-weight:600;margin-bottom:4px;">
-        <a href="{n["link"]}" style="color:#1c5a7c;text-decoration:none;">{n["title"]}</a>
-        </div>
-        <ul style="font-size:11px;margin:6px 0 6px 18px;padding:0;">
-        <li style="margin-bottom:3px;">{n["point1"]}</li>
-        <li style="margin-bottom:3px;">{n["point2"]}</li>
-        <li style="margin-bottom:3px;">{n["point3"]}</li>
+            html += f"""
+      <div style="margin-bottom:16px;padding:12px;background:#fafafa;border-radius:6px;border-left:3px solid {accent};">
+        <a href="{n["link"]}" style="font-size:15px;font-weight:600;color:#1a1a2e;text-decoration:none;line-height:1.3;">{n["title"]}</a>
+        <ul style="font-size:13px;color:#444;margin:8px 0 8px 16px;padding:0;line-height:1.5;">
+          <li style="margin-bottom:4px;">{n["point1"]}</li>
+          <li style="margin-bottom:4px;">{n["point2"]}</li>
+          <li style="margin-bottom:4px;">{n["point3"]}</li>
         </ul>
-        <div style="font-size:11px;font-style:italic;color:#333;margin-top:6px;">
-        Strategic implication: {n["implication"]}
-        </div></div>"""
-        
+        <p style="font-size:12px;color:#666;margin:8px 0 0;padding-top:6px;border-top:1px solid #eee;font-style:italic;">
+          ⚡ {n["implication"]}
+        </p>
+      </div>"""
+
         html += "</div>"
-        
-    return html + "</div></div></body></html>"
+
+    html += """
+    </div>
+
+    <!-- Footer -->
+    <div style="background:#f8f8f8;padding:16px 20px;text-align:center;border-top:1px solid #eee;">
+      <p style="margin:0;font-size:11px;color:#999;line-height:1.5;">
+        China Brief · AI-powered news analysis · Powered by GPT-4.1
+      </p>
+    </div>
+
+    </div></div></body></html>"""
+
+    return html
 
   
       
