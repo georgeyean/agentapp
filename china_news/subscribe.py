@@ -2,10 +2,10 @@ from flask import Flask, request, jsonify
 import logging
 import re
 import os
-import requests as http_requests
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from flask_cors import CORS
-
-
 
 
 
@@ -13,7 +13,8 @@ app = Flask(__name__)
 CORS(app, resources={r"/subscribe": {"origins": "*"}})
 
 EMAIL_FILE = "subscribers.txt"
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+GMAIL_USER = os.getenv("EMAIL_FROM", "georgeyean@gmail.com")
+GMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
 def send_confirmation(to_email):
@@ -33,21 +34,15 @@ def send_confirmation(to_email):
     </div>
     """
 
-    resp = http_requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "from": "China Brief <gyean@fas.harvard.edu>",
-            "to": [to_email],
-            "subject": "Welcome to China Brief",
-            "html": html,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Welcome to China Brief"
+    msg["From"] = f"China Brief <{GMAIL_USER}>"
+    msg["To"] = to_email
+    msg.attach(MIMEText(html, "html"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+        server.login(GMAIL_USER, GMAIL_PASS)
+        server.send_message(msg)
 
 # strict but reasonable email regex
 EMAIL_REGEX = re.compile(
