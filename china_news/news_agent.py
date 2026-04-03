@@ -1,8 +1,8 @@
-library(reticulate)
-py_install(
-  packages = c("openai", "requests", "feedparser", "python-dotenv", "markdown"),
-  pip = TRUE
-)
+# library(reticulate)
+# py_install(
+#   packages = c("openai", "requests", "feedparser", "python-dotenv", "markdown"),
+#   pip = TRUE
+# )
 
 import feedparser
 from datetime import datetime, timedelta

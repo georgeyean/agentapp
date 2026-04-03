@@ -45,7 +45,7 @@ def send_confirmation(to_email, list_type):
     """
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Welcome to {list_type} Brief "
+    msg["Subject"] = f"Welcome to {list_type.title()} Brief "
     msg["From"] = f"China Brief <{GMAIL_USER}>"
     msg["To"] = to_email
     msg.attach(MIMEText(html, "html"))
