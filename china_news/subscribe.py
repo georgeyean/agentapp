@@ -12,20 +12,30 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/subscribe": {"origins": "*"}})
 
-EMAIL_FILE = "subscribers.txt"
+SUBSCRIBE_DIR = "subscribers"
 GMAIL_USER = os.getenv("EMAIL_FROM", "georgeyean@gmail.com")
 GMAIL_PASS = os.getenv("EMAIL_PASS")
 
 
-def send_confirmation(to_email):
-    html = """\
+def get_list_file(list_type):
+    """Return the file path for a given subscription list."""
+    # Sanitize: only allow alphanumeric, hyphens, underscores
+    safe_name = re.sub(r"[^a-z0-9_-]", "", list_type.lower())
+    if not safe_name:
+        safe_name = "default"
+    os.makedirs(SUBSCRIBE_DIR, exist_ok=True)
+    return os.path.join(SUBSCRIBE_DIR, f"{safe_name}.txt")
+
+
+def send_confirmation(to_email, list_type):
+    html = f"""\
     <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; padding: 40px 20px;">
       <h2 style="font-size: 22px; color: #1a1a1a; margin-bottom: 24px;">
         You're subscribed.
       </h2>
       <p style="font-size: 16px; line-height: 1.6; color: #333;">
-        You'll receive daily briefings on the latest China news,
-        powered by AI.
+        You've been added to <strong>{list_type}</strong>. You'll receive
+        briefings powered by AI.
       </p>
       <hr style="border: none; border-top: 1px solid #ddd; margin: 32px 0;" />
       <p style="font-size: 13px; color: #999;">
@@ -67,6 +77,7 @@ def subscribe():
 
     data = request.get_json()
     email = data.get("email", "").strip().lower()
+    list_type = data.get("list", "default").strip().lower()
 
     # Validation
     if not is_valid_email(email):
@@ -78,26 +89,28 @@ def subscribe():
         print("Invalid characters")
         return jsonify({"error": "Invalid characters"}), 400
 
-    # Check if already subscribed
+    email_file = get_list_file(list_type)
+
+    # Check if already subscribed to this list
     try:
-        if os.path.exists(EMAIL_FILE):
-            with open(EMAIL_FILE, "r", encoding="utf-8") as f:
+        if os.path.exists(email_file):
+            with open(email_file, "r", encoding="utf-8") as f:
                 existing = {line.strip().lower() for line in f if line.strip()}
             if email in existing:
-                return jsonify({"error": "Already subscribed"}), 409
+                return jsonify({"error": f"Already subscribed to {list_type}"}), 409
     except OSError:
         pass
 
-    # Ensure directory-safe append
+    # Append to list file
     try:
-        with open(EMAIL_FILE, "a", encoding="utf-8") as f:
+        with open(email_file, "a", encoding="utf-8") as f:
             f.write(email + "\n")
     except OSError:
         print("Server write error")
         return jsonify({"error": "Server write error"}), 500
 
     try:
-        send_confirmation(email)
+        send_confirmation(email, list_type)
     except Exception as e:
         app.logger.error(f"Confirmation email failed: {e}")
 
