@@ -78,6 +78,16 @@ def subscribe():
         print("Invalid characters")
         return jsonify({"error": "Invalid characters"}), 400
 
+    # Check if already subscribed
+    try:
+        if os.path.exists(EMAIL_FILE):
+            with open(EMAIL_FILE, "r", encoding="utf-8") as f:
+                existing = {line.strip().lower() for line in f if line.strip()}
+            if email in existing:
+                return jsonify({"error": "Already subscribed"}), 409
+    except OSError:
+        pass
+
     # Ensure directory-safe append
     try:
         with open(EMAIL_FILE, "a", encoding="utf-8") as f:
