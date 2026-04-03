@@ -232,17 +232,78 @@ def send_email(html, text):
                 print(f"Failed to send to {recipient}: {e}")
         
         
+def validate_summary(json_str):
+    """Check if AI returned valid, usable content. Returns (bool, reason)."""
+    try:
+        s = json_str.strip()
+        items = json.loads(s[s.find("["):s.rfind("]")+1])
+
+        if not isinstance(items, list) or len(items) == 0:
+            return False, "Empty or not a list"
+
+        required_keys = {"group", "title", "point1", "point2", "point3", "implication", "link"}
+        for i, item in enumerate(items):
+            missing = required_keys - set(item.keys())
+            if missing:
+                return False, f"Item {i} missing keys: {missing}"
+
+        print(f"Validation passed: {len(items)} articles")
+        return True, None
+
+    except (json.JSONDecodeError, ValueError) as e:
+        return False, f"Invalid JSON: {e}"
+
+
+def send_failure_alert(reason, raw_response=""):
+    """Send failure notification to admin."""
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"China Brief <{EMAIL_USER}>"
+        msg["To"] = "georgeyean@gmail.com"
+        msg["Subject"] = f"⚠️ China Brief FAILED – {datetime.now().strftime('%Y-%m-%d')}"
+
+        html = f"""\
+        <div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+          <h2 style="color:#c0392b;">Daily Brief Failed</h2>
+          <p><strong>Reason:</strong> {reason}</p>
+          <p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+          <details style="margin-top:16px;">
+            <summary style="cursor:pointer;font-weight:600;">Raw AI Response</summary>
+            <pre style="background:#f5f5f5;padding:12px;border-radius:4px;font-size:12px;overflow-x:auto;white-space:pre-wrap;">{raw_response[:3000]}</pre>
+          </details>
+        </div>"""
+
+        msg.attach(MIMEText(html, "html", "utf-8"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        print(f"Failure alert sent to georgeyean@gmail.com")
+    except Exception as e:
+        print(f"Failed to send alert email: {e}")
+
+
 def main():
     articles = collect_articles()
-    print(json.dumps(articles, indent=2, sort_keys=True, ensure_ascii=False))
-    
+    print(f"Collected {len(articles)} articles")
 
+    if not articles:
+        send_failure_alert("No articles collected from RSS feeds")
+        return
 
     summary = analyze_articles(articles)
+
+    valid, reason = validate_summary(summary)
+    if not valid:
+        print(f"AI returned invalid content: {reason}")
+        send_failure_alert(reason, summary)
+        return
+
     email_html = render_email_html_from_json_string(summary)
     email_text = render_email_text_from_json(summary)
-    
+
     send_email(email_html, email_text)
+    print("Done.")
 
 
 if __name__ == "__main__":
