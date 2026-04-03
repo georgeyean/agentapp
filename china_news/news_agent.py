@@ -196,22 +196,40 @@ def render_email_text_from_json(json_str):
     return text
   
   
+def get_subscribers(list_name="china-daily"):
+    """Read subscriber emails from the list file."""
+    filepath = os.path.join("subscribers", f"{list_name}.txt")
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r", encoding="utf-8") as f:
+        return [line.strip().lower() for line in f if line.strip()]
+
+
 def send_email(html, text):
-  
+    subscribers = get_subscribers("china-daily")
+    if not subscribers:
+        print("No subscribers found for china-daily")
+        return
+
     today = datetime.now().strftime("%Y-%m-%d")
-    msg = MIMEMultipart("alternative")
-    msg["From"] = "AI-powered Brief <brief@brief.com>"
-    msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Daily China Briefing ({today})"
-
-    # Plain-text fallback (important for deliverability)
-    msg.attach(MIMEText(text, "plain", "utf-8"))
-
-    msg.attach(MIMEText(html, "html", "utf-8"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(EMAIL_USER, EMAIL_PASS)
-        server.send_message(msg)
+
+        for recipient in subscribers:
+            msg = MIMEMultipart("alternative")
+            msg["From"] = f"China Brief <{EMAIL_USER}>"
+            msg["To"] = recipient
+            msg["Subject"] = f"Daily China Briefing ({today})"
+
+            msg.attach(MIMEText(text, "plain", "utf-8"))
+            msg.attach(MIMEText(html, "html", "utf-8"))
+
+            try:
+                server.send_message(msg)
+                print(f"Sent to {recipient}")
+            except Exception as e:
+                print(f"Failed to send to {recipient}: {e}")
         
         
 def main():
