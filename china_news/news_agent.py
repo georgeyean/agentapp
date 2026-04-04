@@ -305,7 +305,7 @@ def main():
 
     # S&P 500 Briefing
     try:
-        from china_news.stock_prediction import sp500_daily_briefing
+        from stock_prediction import sp500_daily_briefing
         sp500_daily_briefing()
     except Exception as e:
         print(f"S&P 500 briefing failed: {e}")
