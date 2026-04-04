@@ -51,6 +51,7 @@ def collect_articles():
 
     for feed in RSS_FEEDS:
         parsed = feedparser.parse(feed)
+        count = 0
 
         for entry in parsed.entries:
             entry_time = get_entry_datetime(entry)
@@ -63,7 +64,11 @@ def collect_articles():
                 "summary": entry.get("summary", "").strip(),
                 "link": entry.get("link", "")
             })
+            count += 1
 
+        print(f"  {feed}: {count} articles")
+
+    print(f"Total: {len(articles)} articles")
     return articles
 
 
