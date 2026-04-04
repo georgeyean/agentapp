@@ -27,14 +27,14 @@ EMAIL_TO='georgeyean@gmail.com'
 
 
 RSS_FEEDS = [
-    "https://www.reuters.com/world/china/rss",
     "https://www.ft.com/china?format=rss",
     "https://asia.nikkei.com/rss/feed/nar",
     "https://feeds.content.dowjones.io/public/rss/RSSWorldNews",
     "https://www.scmp.com/rss/91/feed",
     "https://www.csis.org/rss.xml",
-    "https://www.rand.org/rss.html",
-    "https://www.piie.com/rss"
+    "https://www.aljazeera.com/xml/rss/all.xml",
+    "https://thediplomat.com/feed/",
+    "https://feeds.bbci.co.uk/news/world/asia/rss.xml",
 ]
 
 def get_entry_datetime(entry):
