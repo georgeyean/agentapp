@@ -84,7 +84,10 @@ def analyze_articles(articles):
     prompt = (
         "You are an analyst specializing in Chinese politics, economy, and geopolitics.\n\n"
         "From the following news (past 24 hours):\n"
-        "1. Group news into Politics, Economy, Geopolitics\n"
+        "1. Group news into exactly three categories: Domestic Politics, Economy, Geopolitics. "
+        "Geopolitics MUST include: US-China relations, Taiwan, South China Sea, Belt and Road, "
+        "sanctions, trade wars, military activity, diplomacy, alliances, and any China interaction with foreign countries. "
+        "Every category must have at least one article if relevant news exists.\n"
         "2. Extract ALL China-related developments but remove duplicated news (downplay SCMP if duplicated); add which press the news is from in a bracket BEFORE title\n"
         "3. Go to link for each news to extract three key points in the text; return 'PW' if paywalled\n"
         "4. Explain strategic implications, not just facts (1 sentence max) for each news\n"
