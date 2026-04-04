@@ -93,7 +93,8 @@ def analyze_articles(articles):
         "4. Explain strategic implications, not just facts (1 sentence max) for each news\n"
         "5. Add link to news in the end for each news"
         "6. Merge all steps together, not seperate display; Be concise, analytical, neutral\n\n"
-        "Return JSON format only, containing: group, title, point1, point2, point3, implication, link. \n"
+        "Return ONLY a flat JSON array (not nested by group). Each item must have: group, title, point1, point2, point3, implication, link. "
+        "Example format: [{\"group\": \"Economy\", \"title\": \"...\", ...}, {\"group\": \"Geopolitics\", \"title\": \"...\", ...}]\n"
         f"News:\n{content}"
     )
 
@@ -106,11 +107,43 @@ def analyze_articles(articles):
     return response.choices[0].message.content
 
 
+def parse_items_from_json(json_str):
+    """Parse AI response into a flat list of items, handling both array and nested object formats."""
+    s = json_str.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+    # Try flat array first
+    if "[" in s:
+        try:
+            items = json.loads(s[s.find("["):s.rfind("]")+1])
+            if isinstance(items, list) and len(items) > 0:
+                return items
+        except json.JSONDecodeError:
+            pass
+
+    # Try nested object format: {"Domestic Politics": [...], "Economy": [...], ...}
+    try:
+        data = json.loads(s[s.find("{"):s.rfind("}")+1])
+        if isinstance(data, dict):
+            items = []
+            for group, entries in data.items():
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if "group" not in entry:
+                            entry["group"] = group
+                        items.append(entry)
+            if items:
+                return items
+    except json.JSONDecodeError:
+        pass
+
+    raise ValueError("Could not parse AI response as flat array or nested object")
+
 
 
 def render_email_html_from_json_string(json_str: str) -> str:
-    s = json_str.strip()
-    items = json.loads(s[s.find("["):s.rfind("]")+1])
+    items = parse_items_from_json(json_str)
 
     grouped = defaultdict(list)
     for i in items:
@@ -118,8 +151,8 @@ def render_email_html_from_json_string(json_str: str) -> str:
 
     today = datetime.now().strftime("%B %d, %Y")
 
-    ICONS = {"Politics": "🏛", "Economy": "📊", "Geopolitics": "🌏"}
-    ACCENTS = {"Politics": "#c0392b", "Economy": "#2471a3", "Geopolitics": "#1e8449"}
+    ICONS = {"Domestic Politics": "🏛", "Politics": "🏛", "Economy": "📊", "Geopolitics": "🌏"}
+    ACCENTS = {"Domestic Politics": "#c0392b", "Politics": "#c0392b", "Economy": "#2471a3", "Geopolitics": "#1e8449"}
     DEFAULT_ACCENT = "#555"
 
     html = f"""<html><body style="margin:0;padding:0;background:#f0f0f0;">
@@ -178,11 +211,7 @@ def render_email_html_from_json_string(json_str: str) -> str:
   
       
 def render_email_text_from_json(json_str):
-  
-    json_str = json_str.strip()
-    start = json_str.find("[")
-    end = json_str.rfind("]") + 1
-    items = json.loads(json_str[start:end])
+    items = parse_items_from_json(json_str)
     
     grouped = defaultdict(list)
     for item in items:
@@ -243,8 +272,7 @@ def send_email(html, text):
 def validate_summary(json_str):
     """Check if AI returned valid, usable content. Returns (bool, reason)."""
     try:
-        s = json_str.strip()
-        items = json.loads(s[s.find("["):s.rfind("]")+1])
+        items = parse_items_from_json(json_str)
 
         if not isinstance(items, list) or len(items) == 0:
             return False, "Empty or not a list"
