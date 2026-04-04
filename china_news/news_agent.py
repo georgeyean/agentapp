@@ -284,26 +284,32 @@ def send_failure_alert(reason, raw_response=""):
 
 
 def main():
+    # China Brief
     articles = collect_articles()
     print(f"Collected {len(articles)} articles")
 
     if not articles:
         send_failure_alert("No articles collected from RSS feeds")
-        return
+    else:
+        summary = analyze_articles(articles)
 
-    summary = analyze_articles(articles)
+        valid, reason = validate_summary(summary)
+        if not valid:
+            print(f"AI returned invalid content: {reason}")
+            send_failure_alert(reason, summary)
+        else:
+            email_html = render_email_html_from_json_string(summary)
+            email_text = render_email_text_from_json(summary)
+            send_email(email_html, email_text)
+            print("China Brief done.")
 
-    valid, reason = validate_summary(summary)
-    if not valid:
-        print(f"AI returned invalid content: {reason}")
-        send_failure_alert(reason, summary)
-        return
-
-    email_html = render_email_html_from_json_string(summary)
-    email_text = render_email_text_from_json(summary)
-
-    send_email(email_html, email_text)
-    print("Done.")
+    # S&P 500 Briefing
+    try:
+        from china_news.stock_prediction import sp500_daily_briefing
+        sp500_daily_briefing()
+    except Exception as e:
+        print(f"S&P 500 briefing failed: {e}")
+        send_failure_alert(f"S&P 500 briefing error: {e}")
 
 
 if __name__ == "__main__":
