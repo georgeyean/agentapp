@@ -50,37 +50,39 @@ FELLOWSHIP_SOURCES = [
 
     # Web pages to scrape
     ("SSRC Fellowships", "https://www.ssrc.org/fellowships/", "web"),
-    ("ACLS Competitions", "https://www.acls.org/competitions/", "web"),
+    ("ACLS Competitions", "https://www.acls.org/competitions-and-deadlines/", "web"),
     ("USIP Grants & Fellowships", "https://www.usip.org/grants-fellowships", "web"),
     ("Wilson Center Fellowships", "https://www.wilsoncenter.org/fellowships-grants", "web"),
     ("CFR Fellowships", "https://www.cfr.org/fellowships", "web"),
-    ("Brookings Fellowships", "https://www.brookings.edu/careers/fellowship-programs/", "web"),
+    ("Brookings Rubenstein Fellowship", "https://www.brookings.edu/david-m-rubenstein-fellowship-program/", "web"),
     ("Carnegie Endowment", "https://carnegieendowment.org/about/jr-fellows", "web"),
     ("Smith Richardson Foundation", "https://www.srf.org/programs/international-security-foreign-policy/", "web"),
-    ("Minerva Research Initiative", "https://minerva.defense.gov/Funding-Opportunities/", "web"),
 
     # Canada-specific
-    ("SSHRC Doctoral Fellowships", "https://www.sshrc-crsh.gc.ca/funding-financement/programs-programmes/fellowships/doctoral-doctorat-eng.aspx", "web"),
-    ("Trudeau Foundation Scholarships", "https://www.trudeaufoundation.ca/our-community/scholarships", "web"),
-    ("Killam Fellowships", "https://www.killamlaureates.ca/killam-programs/killam-fellowships/", "web"),
+    ("SSHRC Doctoral Fellowships", "https://sshrc-crsh.canada.ca/en/funding/opportunities/doctoral-fellowships.aspx", "web_no_verify"),
+    ("SSHRC CGS-D", "https://sshrc-crsh.canada.ca/en/funding/opportunities/canada-graduate-research-scholarships/doctoral-program.aspx", "web_no_verify"),
+    ("Trudeau Foundation Scholarships", "https://www.trudeaufoundation.ca/scholarship/", "web"),
+    ("Killam Fellowships (NRC)", "https://nrc.canada.ca/en/corporate/careers/national-killam-program", "web"),
+    ("Killam Fellowships (Fulbright Canada)", "https://www.fulbright.ca/programs/killam-fellowships", "web"),
+    ("Vanier CGS", "https://vanier.gc.ca/en/home-accueil.html", "web_no_verify"),
 
     # Additional IR/Security
     ("Belfer Center Fellowships", "https://www.belfercenter.org/fellowships", "web"),
-    ("CSIS Fellowships", "https://www.csis.org/programs/about-us/internships-and-fellowships", "web"),
-    ("RAND Graduate Fellowship", "https://www.rand.org/about/edu_op/fellowships.html", "web"),
+    ("CSIS Careers & Fellowships", "https://www.csis.org/about/careers-culture", "web"),
+    ("RAND Educational Opportunities", "https://www.rand.org/about/educational-opportunities.html", "web"),
     ("Stimson Center", "https://www.stimson.org/careers/", "web"),
-    ("East-West Center", "https://www.eastwestcenter.org/education", "web"),
+    ("East-West Center", "https://www.eastwestcenter.org/education/education-program-overview", "web"),
     ("Fulbright Canada", "https://www.fulbright.ca/programs/canadian-students", "web"),
-    ("Vanier CGS", "https://vanier.gc.ca/en/home-accueil.html", "web"),
-    ("IISS Research Fellowships", "https://www.iiss.org/about-us/careers", "web"),
+    ("IISS Careers & Fellowships", "https://www.iiss.org/careers/", "web"),
 
     # Harvard centers
     ("Weatherhead Center Harvard", "https://wcfia.harvard.edu/funding", "web"),
-    ("Fairbank Center Harvard", "https://fairbank.fas.harvard.edu/grants-fellowships/", "web"),
-    ("Asia Center Harvard", "https://asiacenter.harvard.edu/grants-fellowships", "web"),
+    ("Fairbank Center Harvard", "https://fairbank.fas.harvard.edu/grants/", "web"),
+    ("Asia Center Harvard", "https://asiacenter.harvard.edu/funding-affiliation-opportunities", "web"),
 
     # Taiwan/China foundations
-    ("Chiang Ching-kuo Foundation", "https://www.cckf.org/en/programs", "web"),
+    ("Chiang Ching-kuo Foundation", "https://www.cckf.org.tw/en/programs", "web"),
+    ("Chiang Ching-kuo Foundation Grants", "https://www.cckf.org/en/grants", "web"),
 
     # Canada government funding
     ("Canada Council for the Arts", "https://canadacouncil.ca/funding", "web"),
@@ -88,13 +90,15 @@ FELLOWSHIP_SOURCES = [
     ("Global Affairs Canada Scholarships", "https://www.educanada.ca/scholarships-bourses/index.aspx?lang=eng", "web"),
 
     # Professional associations
-    ("APSA (American Political Science Association)", "https://www.apsanet.org/RESOURCES/Funding-Opportunities", "web"),
+    ("APSA Grants", "https://apsanet.org/resources/grants-in-the-discipline/", "web"),
     ("MPSA (Midwest Political Science Association)", "https://www.mpsanet.org/awards/", "web"),
     ("ISA (International Studies Association)", "https://www.isanet.org/Programs/Awards", "web"),
 ]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
@@ -134,10 +138,10 @@ def fetch_rss_entries(name, url):
     return entries
 
 
-def fetch_web_page(name, url):
+def fetch_web_page(name, url, verify_ssl=True):
     """Scrape a web page for fellowship/grant text."""
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(url, headers=HEADERS, timeout=15, verify=verify_ssl)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -185,8 +189,9 @@ def collect_all_sources():
             entries = fetch_rss_entries(name, url)
             rss_entries.extend(entries)
             print(f"    -> {len(entries)} relevant entries")
-        elif source_type == "web":
-            page = fetch_web_page(name, url)
+        elif source_type in ("web", "web_no_verify"):
+            verify_ssl = source_type != "web_no_verify"
+            page = fetch_web_page(name, url, verify_ssl=verify_ssl)
             if page:
                 web_pages.append(page)
                 print(f"    -> scraped ({len(page.get('links', []))} links)")
