@@ -267,7 +267,15 @@ def analyze_fellowships(rss_entries, web_pages):
 
     profile_str = json.dumps(PROFILE, indent=2)
 
+    today_str = datetime.now().strftime("%B %d, %Y")
+    three_months = (datetime.now() + timedelta(days=90)).strftime("%B %d, %Y")
+
     prompt = f"""You are a fellowship and grant advisor for political science PhD students.
+
+TODAY'S DATE: {today_str}
+DEADLINE_SOON means the deadline falls between {today_str} and {three_months}.
+If the deadline has already passed (before {today_str}), set deadline_soon to false.
+If the deadline is unknown, set deadline_soon to false.
 
 CANDIDATE PROFILE:
 {profile_str}
@@ -288,7 +296,8 @@ TASK:
 2. Also include any well-known fellowships you know of in these fields that may not appear in the scraped data (e.g., Fulbright, SSRC-DPDF, MacArthur, Jennings Randolph, etc.)
 3. For each opportunity, provide: name, organization, amount (if known), deadline (if known), eligibility match (why this candidate qualifies), URL, and a brief description.
 4. Sort by relevance to candidate's profile (most relevant first).
-5. Flag which ones have upcoming deadlines (within the next 3 months).
+5. Set deadline_soon=true ONLY if the deadline is between {today_str} and {three_months}. Do NOT flag past deadlines or unknown deadlines.
+6. Exclude fellowships whose deadlines have clearly passed for this cycle.
 
 Return ONLY valid JSON in this format:
 [
