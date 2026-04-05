@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 import json
 import os
 import re
+from urllib.parse import urljoin
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -138,40 +139,85 @@ def fetch_rss_entries(name, url):
     return entries
 
 
-def fetch_web_page(name, url, verify_ssl=True):
-    """Scrape a web page for fellowship/grant text."""
+FELLOWSHIP_LINK_KEYWORDS = [
+    "fellow", "grant", "fund", "scholar", "apply", "opportunity",
+    "program", "award", "dissertation", "research", "competition",
+    "stipend", "prize", "travel", "predoctoral", "postdoctoral",
+]
+
+
+def scrape_page(url, verify_ssl=True):
+    """Scrape a single page, return (text, links) or None on failure."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=15, verify=verify_ssl)
         resp.raise_for_status()
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # Remove scripts and styles
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
 
-        # Get all text content
-        text = soup.get_text(separator="\n", strip=True)
+        text = soup.get_text(separator="\n", strip=True)[:5000]
 
-        # Truncate to reasonable size
-        text = text[:5000]
-
-        # Extract links
         links = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if not href.startswith("http"):
-                from urllib.parse import urljoin
                 href = urljoin(url, href)
             link_text = a.get_text(strip=True)
-            if any(kw in link_text.lower() for kw in ["fellow", "grant", "fund", "scholar",
-                                                        "apply", "opportunity", "program"]):
+            if link_text and any(kw in link_text.lower() for kw in FELLOWSHIP_LINK_KEYWORDS):
                 links.append({"text": link_text, "url": href})
+
+        return text, links
+    except Exception as e:
+        return None, []
+
+
+def fetch_web_page_deep(name, url, verify_ssl=True, max_subpages=5):
+    """Scrape a main page, then follow relevant sub-links for details."""
+    try:
+        print(f"    Scraping main page...")
+        main_text, main_links = scrape_page(url, verify_ssl=verify_ssl)
+        if main_text is None:
+            raise Exception(f"Failed to fetch {url}")
+
+        # Deduplicate links by URL
+        seen_urls = {url}
+        unique_links = []
+        for link in main_links[:20]:
+            if link["url"] not in seen_urls and link["url"].startswith("http"):
+                seen_urls.add(link["url"])
+                unique_links.append(link)
+
+        # Follow sub-links to get fellowship details
+        subpage_details = []
+        followed = 0
+        for link in unique_links:
+            if followed >= max_subpages:
+                break
+            # Skip external domains that are clearly not fellowship pages
+            if any(skip in link["url"] for skip in ["twitter.com", "facebook.com", "linkedin.com",
+                                                      "youtube.com", "instagram.com", "mailto:",
+                                                      ".pdf", ".doc", "#"]):
+                continue
+
+            print(f"      -> Following: {link['text'][:50]}...")
+            sub_text, sub_links = scrape_page(link["url"], verify_ssl=verify_ssl)
+            if sub_text:
+                subpage_details.append({
+                    "title": link["text"],
+                    "url": link["url"],
+                    "text": sub_text[:3000],
+                })
+                followed += 1
+
+        print(f"    -> {len(unique_links)} links found, {len(subpage_details)} sub-pages scraped")
 
         return {
             "source": name,
             "url": url,
-            "text": text,
-            "links": links[:20],
+            "text": main_text,
+            "links": unique_links,
+            "subpages": subpage_details,
         }
     except Exception as e:
         print(f"  Web error ({name}): {e}")
@@ -191,10 +237,9 @@ def collect_all_sources():
             print(f"    -> {len(entries)} relevant entries")
         elif source_type in ("web", "web_no_verify"):
             verify_ssl = source_type != "web_no_verify"
-            page = fetch_web_page(name, url, verify_ssl=verify_ssl)
+            page = fetch_web_page_deep(name, url, verify_ssl=verify_ssl)
             if page:
                 web_pages.append(page)
-                print(f"    -> scraped ({len(page.get('links', []))} links)")
 
     return rss_entries, web_pages
 
@@ -212,9 +257,13 @@ def analyze_fellowships(rss_entries, web_pages):
     web_text = "WEB PAGES (fellowship program pages):\n"
     for p in web_pages:
         links_str = "\n".join(f"  - {l['text']}: {l['url']}" for l in p.get("links", []))
-        web_text += f"\n--- {p['source']} ({p['url']}) ---\n{p['text'][:3000]}\n"
+        web_text += f"\n--- {p['source']} ({p['url']}) ---\n{p['text'][:2000]}\n"
         if links_str:
             web_text += f"Links found:\n{links_str}\n"
+
+        # Include sub-page details
+        for sub in p.get("subpages", []):
+            web_text += f"\n  [Sub-page] {sub['title']} ({sub['url']}):\n{sub['text'][:1500]}\n"
 
     profile_str = json.dumps(PROFILE, indent=2)
 
@@ -293,6 +342,77 @@ def parse_fellowship_results(json_str):
     return False, "Could not parse fellowship results", None
 
 
+def build_source_directory():
+    """Build an HTML directory of all source pages grouped by category."""
+    categories = {
+        "Think Tanks & Research Orgs": [],
+        "Harvard Centers": [],
+        "Canada Funding": [],
+        "Foundations": [],
+        "Professional Associations": [],
+        "Other": [],
+    }
+
+    category_map = {
+        "SSRC": "Think Tanks & Research Orgs",
+        "ACLS": "Think Tanks & Research Orgs",
+        "USIP": "Think Tanks & Research Orgs",
+        "Wilson Center": "Think Tanks & Research Orgs",
+        "CFR": "Think Tanks & Research Orgs",
+        "Brookings": "Think Tanks & Research Orgs",
+        "Carnegie": "Think Tanks & Research Orgs",
+        "CSIS": "Think Tanks & Research Orgs",
+        "RAND": "Think Tanks & Research Orgs",
+        "Stimson": "Think Tanks & Research Orgs",
+        "Belfer": "Think Tanks & Research Orgs",
+        "IISS": "Think Tanks & Research Orgs",
+        "East-West": "Think Tanks & Research Orgs",
+        "Weatherhead": "Harvard Centers",
+        "Fairbank": "Harvard Centers",
+        "Asia Center": "Harvard Centers",
+        "SSHRC": "Canada Funding",
+        "Vanier": "Canada Funding",
+        "Killam": "Canada Funding",
+        "Trudeau": "Canada Funding",
+        "Canada Council": "Canada Funding",
+        "IDRC": "Canada Funding",
+        "Global Affairs": "Canada Funding",
+        "Fulbright": "Canada Funding",
+        "Smith Richardson": "Foundations",
+        "Chiang Ching-kuo": "Foundations",
+        "APSA": "Professional Associations",
+        "MPSA": "Professional Associations",
+        "ISA": "Professional Associations",
+        "H-Net": "Professional Associations",
+    }
+
+    for name, url, _ in FELLOWSHIP_SOURCES:
+        cat = "Other"
+        for key, category in category_map.items():
+            if key in name:
+                cat = category
+                break
+        categories[cat].append({"name": name, "url": url})
+
+    html = """
+    <div style="background:#f0f4f8;border-radius:8px;padding:16px;margin-bottom:20px;">
+      <h3 style="margin:0 0 10px;font-size:15px;color:#1e3a5f;">Browse All Sources</h3>
+      <p style="font-size:12px;color:#666;margin:0 0 12px;">Click any source to browse their fellowship pages directly.</p>"""
+
+    for cat, sources in categories.items():
+        if not sources:
+            continue
+        html += f"""
+      <div style="margin-bottom:10px;">
+        <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#1e3a5f;text-transform:uppercase;letter-spacing:0.5px;">{cat}</p>"""
+        for s in sources:
+            html += f'<a href="{s["url"]}" style="display:inline-block;font-size:12px;color:#2563eb;text-decoration:none;margin:2px 8px 2px 0;padding:3px 8px;background:#fff;border:1px solid #dbeafe;border-radius:4px;">{s["name"]}</a>'
+        html += "</div>"
+
+    html += "</div>"
+    return html
+
+
 def render_fellowship_email_html(fellowships):
     """Build a clean, mobile-friendly HTML email."""
     today = datetime.now().strftime("%B %d, %Y")
@@ -304,6 +424,9 @@ def render_fellowship_email_html(fellowships):
 
     # Deadline alerts
     urgent = [f for f in fellowships if f.get("deadline_soon")]
+
+    # Source directory
+    source_directory = build_source_directory()
 
     def render_section(items, accent):
         html = ""
@@ -344,6 +467,8 @@ def render_fellowship_email_html(fellowships):
 
     <div style="padding:20px;">
 
+    {source_directory}
+
     {urgent_section}
 
     <p style="font-size:13px;color:#666;margin-bottom:16px;">Found <strong>{len(fellowships)}</strong> opportunities ({len(high)} high relevance, {len(medium)} medium, {len(low)} low)</p>"""
@@ -378,6 +503,12 @@ def render_fellowship_email_html(fellowships):
 def render_fellowship_email_text(fellowships):
     """Plain text version."""
     text = "Weekly Fellowship & Grant Digest\n" + "=" * 40 + "\n\n"
+
+    # Source directory
+    text += "BROWSE ALL SOURCES:\n" + "-" * 30 + "\n"
+    for name, url, _ in FELLOWSHIP_SOURCES:
+        text += f"  {name}: {url}\n"
+    text += "\n"
 
     urgent = [f for f in fellowships if f.get("deadline_soon")]
     if urgent:
