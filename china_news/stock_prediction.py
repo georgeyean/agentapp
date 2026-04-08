@@ -55,9 +55,11 @@ def analyze_market(articles):
 
     prompt = f"""You are a senior equity strategist. Based on today's financial news, provide:
 
-1. **Market Movers**: What news drove today's S&P 500 movement? For each, state the event, whether it was bullish or bearish, and a one-sentence explanation.
+1. **Today's Prediction**: Your prediction for today's S&P 500 trading session. Include expected direction, predicted percentage move range, key factors driving today's session, and a confidence level (high/medium/low).
 
-2. **5-Day Outlook**: Your prediction for the next 5 trading days based on real events and their likely development. Include overall direction, reasoning, key risks, and key catalysts.
+2. **Market Movers**: What news drove today's S&P 500 movement? For each, state the event, whether it was bullish or bearish, and a one-sentence explanation.
+
+3. **5-Day Outlook**: Your prediction for the next 5 trading days based on real events and their likely development. Include overall direction, reasoning, key risks, and key catalysts.
 
 Be specific, cite actual news, and give clear directional reasoning.
 
@@ -66,6 +68,13 @@ Today's news:
 
 Return ONLY valid JSON in this exact format:
 {{
+  "today_prediction": {{
+    "direction": "bullish/bearish/neutral",
+    "predicted_move": "+0.X% to +0.Y%",
+    "confidence": "high/medium/low",
+    "key_factors": ["..."],
+    "summary": "..."
+  }},
   "market_movers": [
     {{"event": "...", "impact": "bullish/bearish", "explanation": "..."}}
   ],
@@ -96,7 +105,7 @@ def validate_market_analysis(json_str):
             s = s.split("\n", 1)[1].rsplit("```", 1)[0]
         data = json.loads(s)
 
-        if "market_movers" not in data or "five_day_outlook" not in data:
+        if "market_movers" not in data or "five_day_outlook" not in data or "today_prediction" not in data:
             return False, "Missing required keys", None
         if not isinstance(data["market_movers"], list) or len(data["market_movers"]) == 0:
             return False, "No market movers found", None
@@ -109,6 +118,38 @@ def validate_market_analysis(json_str):
 
 def render_market_email_html(data):
     today = datetime.now().strftime("%B %d, %Y")
+
+    # Today's Prediction section
+    tp = data.get("today_prediction", {})
+    tp_direction = tp.get("direction", "N/A").lower()
+    if "bull" in tp_direction:
+        tp_color, tp_bg = "#16a34a", "#f0fdf4"
+        tp_arrow = "▲"
+    elif "bear" in tp_direction:
+        tp_color, tp_bg = "#dc2626", "#fef2f2"
+        tp_arrow = "▼"
+    else:
+        tp_color, tp_bg = "#d97706", "#fffbeb"
+        tp_arrow = "►"
+
+    conf = tp.get("confidence", "N/A").upper()
+    conf_colors = {"HIGH": "#16a34a", "MEDIUM": "#d97706", "LOW": "#dc2626"}
+    conf_color = conf_colors.get(conf, "#666")
+
+    tp_factors_html = "".join(f'<li style="margin-bottom:4px;">{f}</li>' for f in tp.get("key_factors", []))
+
+    today_prediction_html = f"""
+      <div style="margin-bottom:12px;padding:16px;background:{tp_bg};border-radius:8px;border:2px solid {tp_color};">
+        <div style="text-align:center;margin-bottom:12px;">
+          <span style="font-size:20px;font-weight:700;color:{tp_color};">{tp_arrow} {tp_direction.upper()}</span>
+          <span style="display:inline-block;margin-left:12px;font-size:16px;font-weight:600;color:#333;">{tp.get('predicted_move', 'N/A')}</span>
+        </div>
+        <div style="text-align:center;margin-bottom:12px;">
+          <span style="font-size:12px;font-weight:700;color:{conf_color};background:#fff;padding:2px 10px;border-radius:4px;">Confidence: {conf}</span>
+        </div>
+        <p style="font-size:14px;color:#444;line-height:1.6;margin:0 0 8px;">{tp.get('summary', '')}</p>
+        <ul style="font-size:13px;color:#444;margin:8px 0 0 16px;padding:0;">{tp_factors_html}</ul>
+      </div>"""
 
     movers_html = ""
     for m in data.get("market_movers", []):
@@ -145,7 +186,10 @@ def render_market_email_html(data):
 
     <div style="padding:20px;">
 
-      <h2 style="font-size:16px;color:#0f172a;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid #2563eb;">Market Movers</h2>
+      <h2 style="font-size:16px;color:#0f172a;margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid {tp_color};">Today's Market Prediction</h2>
+      {today_prediction_html}
+
+      <h2 style="font-size:16px;color:#0f172a;margin:24px 0 12px;padding-bottom:8px;border-bottom:2px solid #2563eb;">Market Movers</h2>
       {movers_html}
 
       <h2 style="font-size:16px;color:#0f172a;margin:24px 0 12px;padding-bottom:8px;border-bottom:2px solid {dir_color};">5-Day Outlook</h2>
@@ -184,7 +228,16 @@ def render_market_email_html(data):
 
 def render_market_email_text(data):
     text = "S&P 500 Daily Briefing\n\n"
-    text += "MARKET MOVERS\n" + "=" * 40 + "\n"
+
+    tp = data.get("today_prediction", {})
+    text += "TODAY'S MARKET PREDICTION\n" + "=" * 40 + "\n"
+    text += f"Direction: {tp.get('direction', 'N/A').upper()}\n"
+    text += f"Predicted Move: {tp.get('predicted_move', 'N/A')}\n"
+    text += f"Confidence: {tp.get('confidence', 'N/A').upper()}\n"
+    text += f"{tp.get('summary', '')}\n"
+    text += "Key Factors:\n" + "\n".join(f"  - {f}" for f in tp.get("key_factors", [])) + "\n"
+
+    text += "\n\nMARKET MOVERS\n" + "=" * 40 + "\n"
     for m in data.get("market_movers", []):
         text += f"\n{m['event']} [{m['impact'].upper()}]\n{m['explanation']}\n"
 
