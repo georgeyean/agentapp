@@ -114,6 +114,17 @@ def subscribe():
     except Exception as e:
         app.logger.error(f"Confirmation email failed: {e}")
 
+    try:
+        msg = MIMEText(f"{email} subscribed to {list_type}.")
+        msg["Subject"] = f"{email} subscribed"
+        msg["From"] = GMAIL_USER
+        msg["To"] = "georgeyean@gmail.com"
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.send_message(msg)
+    except Exception as e:
+        app.logger.error(f"Admin notification failed: {e}")
+
     return jsonify({"success": True}), 200
 
 

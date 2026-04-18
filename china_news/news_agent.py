@@ -339,13 +339,6 @@ def main():
             send_email(email_html, email_text)
             print("China Brief done.")
 
-    # S&P 500 Briefing
-    try:
-        from stock_prediction import sp500_daily_briefing
-        sp500_daily_briefing()
-    except Exception as e:
-        print(f"S&P 500 briefing failed: {e}")
-        send_failure_alert(f"S&P 500 briefing error: {e}")
 
 
 if __name__ == "__main__":

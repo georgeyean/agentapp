@@ -251,20 +251,35 @@ def render_market_email_text(data):
     return text
 
 
+def get_subscribers(list_name="stock"):
+    path = os.path.join("subscribers", f"{list_name}.txt")
+    if not os.path.exists(path):
+        return []
+    with open(path, "r", encoding="utf-8") as f:
+        return [line.strip().lower() for line in f if line.strip()]
+
+
 def send_market_email(html, text):
     today = datetime.now().strftime("%Y-%m-%d")
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"S&P 500 Daily Briefing ({today})"
-    msg["From"] = f"Market Brief <{GMAIL_USER}>"
-    msg["To"] = "georgeyean@gmail.com"
+    subject = f"S&P 500 Daily Briefing ({today})"
 
-    msg.attach(MIMEText(text, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
+    recipients = get_subscribers("market-brief")
+    if GMAIL_USER not in recipients:
+        recipients.append(GMAIL_USER)
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
         server.login(GMAIL_USER, GMAIL_PASS)
-        server.send_message(msg)
-    print("S&P 500 briefing sent to georgeyean@gmail.com")
+        for recipient in recipients:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"Market Brief <{GMAIL_USER}>"
+            msg["To"] = recipient
+            msg.attach(MIMEText(text, "plain", "utf-8"))
+            msg.attach(MIMEText(html, "html", "utf-8"))
+            server.send_message(msg)
+            print(f"S&P 500 briefing sent to {recipient}")
+
+    print(f"S&P 500 briefing sent to {len(recipients)} subscriber(s)")
 
 
 def send_market_failure_alert(reason, raw_response=""):
