@@ -117,6 +117,51 @@ def subscribe():
     return jsonify({"success": True}), 200
 
 
+@app.route("/subscribers", methods=["GET"])
+def view_subscribers():
+    lists = {}
+    if os.path.isdir(SUBSCRIBE_DIR):
+        for fname in sorted(os.listdir(SUBSCRIBE_DIR)):
+            if fname.endswith(".txt"):
+                list_name = fname[:-4]
+                fpath = os.path.join(SUBSCRIBE_DIR, fname)
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        emails = [line.strip() for line in f if line.strip()]
+                except OSError:
+                    emails = []
+                lists[list_name] = emails
+
+    rows = ""
+    total = 0
+    for list_name, emails in lists.items():
+        total += len(emails)
+        rows += f'<tr><td colspan="2" style="background:#f0f0f0;font-weight:bold;padding:8px 12px">{list_name} ({len(emails)})</td></tr>'
+        for i, email in enumerate(emails, 1):
+            rows += f'<tr><td style="padding:6px 12px;color:#888;width:40px">{i}</td><td style="padding:6px 12px">{email}</td></tr>'
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Subscribers</title>
+  <style>
+    body {{ font-family: Georgia, serif; max-width: 640px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }}
+    h1 {{ font-size: 22px; margin-bottom: 4px; }}
+    p.sub {{ color: #888; font-size: 14px; margin-bottom: 24px; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    tr:not(:last-child) td {{ border-bottom: 1px solid #eee; }}
+  </style>
+</head>
+<body>
+  <h1>Subscribers</h1>
+  <p class="sub">Total: {total}</p>
+  <table>{rows}</table>
+</body>
+</html>"""
+    return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"})
