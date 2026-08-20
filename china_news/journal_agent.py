@@ -783,14 +783,47 @@ def extract_pdf_text(local_path, max_chars=12000):
 # ── GPT analysis ──────────────────────────────────────────────────────────────
 
 def analyze_corrigendum(paper):
-    """Lightweight GPT call: just extract what was corrected."""
+    """Return a one-sentence description of what this corrigendum corrects."""
+    title = paper.get("title", "")
+
+    # Step 1: strip the corrigendum suffix from the title to get the original paper name
+    cleaned = re.sub(
+        r"\s*[-–—]\s*(corrigendum|erratum|correction|reply to|response to).*$",
+        "", title, flags=re.IGNORECASE
+    ).strip()
+    if cleaned and cleaned.lower() != title.lower():
+        return f'Corrects "{cleaned}"'
+
+    # Step 2: check CrossRef references for the corrected DOI
+    doi = paper.get("doi", "")
+    if doi:
+        try:
+            resp = requests.get(
+                f"https://api.crossref.org/works/{doi}",
+                headers=HEADERS, timeout=10
+            )
+            if resp.ok:
+                msg = resp.json().get("message", {})
+                # prefer is-correction-of relation
+                for ref_doi in msg.get("relation", {}).get("is-correction-of", []):
+                    rdoi = ref_doi.get("id", "")
+                    if rdoi:
+                        r2 = requests.get(f"https://api.crossref.org/works/{rdoi}", headers=HEADERS, timeout=10)
+                        if r2.ok:
+                            t = r2.json().get("message", {}).get("title", [""])[0]
+                            if t:
+                                return f'Corrects "{strip_html(t)}"'
+        except Exception:
+            pass
+
+    # Step 3: GPT fallback using whatever content we have
     content = paper.get("full_text") or paper.get("abstract") or "Not available"
     prompt = f"""This is a corrigendum/erratum notice:
 
-Title: {paper['title']}
+Title: {title}
 Content: {content}
 
-In one sentence, state what was corrected (which paper, which error). If content is not available, write "Not available"."""
+In one sentence, state what was corrected (which paper, which error). If unknown, write "Not available"."""
     try:
         resp = client.chat.completions.create(
             model="gpt-4.1-mini",
