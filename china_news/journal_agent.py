@@ -960,7 +960,6 @@ def render_journal_section_html(journal, papers):
   <div style="margin:0;padding:10px 14px;background:#fafafa;border-left:3px solid #9ca3af;border-bottom:1px solid #eee;">
     <a href="{p['url']}" style="font-size:14px;font-weight:600;color:#6b7280;text-decoration:none;">{p['title']}</a>
     <p style="font-size:12px;color:#aaa;margin:2px 0 6px;">{authors_str} · {journal['short']} {p.get('year') or ''}</p>
-    <p style="font-size:12px;color:#555;margin:0 0 6px;"><strong>Corrects:</strong> {correction_note}</p>
     <div style="margin-top:4px;">{free_link_html}</div>
   </div>"""
         else:
@@ -1072,9 +1071,7 @@ def render_email_text(results_by_journal):
                 text += f"Free PDF:     {p['free_url']} ({p.get('free_source','')})\n"
             if p.get("local_path"):
                 text += f"Saved local: {p['local_path']}\n"
-            if p.get("is_corrigendum"):
-                text += f"Corrects: {p.get('correction_note', 'Not available')}\n"
-            elif a.get("content_missing"):
+            if a.get("content_missing"):
                 text += f"Abstract: {p.get('abstract','Not available')}\n"
                 text += "⚠ Paper not accessible — analysis unavailable.\n"
             else:
@@ -1239,7 +1236,6 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
                 print(f"      No PDF text — using abstract only")
 
             if p.get("is_corrigendum"):
-                p["correction_note"] = analyze_corrigendum(p)
                 p["analysis"] = {}
             else:
                 p["analysis"] = analyze_paper(p, journal["name"])
