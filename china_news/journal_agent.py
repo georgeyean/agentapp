@@ -39,7 +39,7 @@ TEST_MODE = True  # True → send only to EMAIL_TO; False → send to all academ
 UNPAYWALL_EMAIL = "georgeyean@gmail.com"
 PAPERS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "papers")
 PAPERS_BASE_URL = "https://agapionline.us/papers"
-PAPERS_PER_JOURNAL = 5  # how many recent papers to fetch per journal each run
+PAPERS_PER_JOURNAL = 15  # how many recent papers to fetch per journal each run
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -92,6 +92,14 @@ def load_seen_dois(seen_file):
 def mark_doi_seen(seen_file, doi):
     with open(seen_file, "a", encoding="utf-8") as f:
         f.write(doi.strip() + "\n")
+
+
+def strip_html(text):
+    """Remove HTML tags and decode common entities."""
+    text = re.sub(r"<[^>]+>", "", text or "")
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">") \
+               .replace("&quot;", '"').replace("&#39;", "'").replace("&nbsp;", " ")
+    return re.sub(r"\s+", " ", text).strip()
 
 
 # ── Paper fetching ─────────────────────────────────────────────────────────────
@@ -153,7 +161,7 @@ def fetch_latest_papers(issn, max_results=25):
             continue
 
         title_list = item.get("title", [])
-        title = title_list[0].strip() if title_list else ""
+        title = strip_html(title_list[0]) if title_list else ""
 
         authors = []
         for a in item.get("author", []):
@@ -165,8 +173,7 @@ def fetch_latest_papers(issn, max_results=25):
             print(f"    Skipping non-paper: {title[:60]}")
             continue
 
-        raw_abstract = item.get("abstract", "")
-        abstract = re.sub(r"<[^>]+>", "", raw_abstract).strip()
+        abstract = strip_html(item.get("abstract", ""))
 
         pub_date = item.get("published-print") or item.get("published-online") or {}
         date_parts = (pub_date.get("date-parts") or [[]])[0]
@@ -935,13 +942,13 @@ def render_journal_section_html(journal, papers):
                     '<table style="width:100%;border-collapse:collapse;font-size:13px;">'
                     "<tr>"
                     '<td style="padding:5px 8px;vertical-align:top;width:28%;background:#eef2f7;font-weight:600;color:#1e3a5f;">Main Argument</td>'
-                    f'<td style="padding:5px 8px;vertical-align:top;color:#444;">{a.get("main_argument","")}</td>'
+                    f'<td style="padding:5px 8px;vertical-align:top;color:#444;">{strip_html(a.get("main_argument",""))}</td>'
                     "</tr><tr>"
                     '<td style="padding:5px 8px;vertical-align:top;background:#eef2f7;font-weight:600;color:#1e3a5f;">Method &amp; Data</td>'
-                    f'<td style="padding:5px 8px;vertical-align:top;color:#444;">{a.get("method_data","")}</td>'
+                    f'<td style="padding:5px 8px;vertical-align:top;color:#444;">{strip_html(a.get("method_data",""))}</td>'
                     "</tr><tr>"
                     '<td style="padding:5px 8px;vertical-align:top;background:#eef2f7;border-radius:0 0 0 4px;font-weight:600;color:#1e3a5f;">Why Published?</td>'
-                    f'<td style="padding:5px 8px;vertical-align:top;color:#555;font-style:italic;">{a.get("why_published","")}</td>'
+                    f'<td style="padding:5px 8px;vertical-align:top;color:#555;font-style:italic;">{strip_html(a.get("why_published",""))}</td>'
                     "</tr></table>"
                 )
             section_html += f"""
@@ -1157,7 +1164,7 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
         for p in new_papers:
             print(f"    Processing: {p['title'][:70]}...")
 
-            p["abstract"] = enrich_abstract(p["doi"], p["title"], p["abstract"], authors=p.get("authors", []))
+            p["abstract"] = strip_html(enrich_abstract(p["doi"], p["title"], p["abstract"], authors=p.get("authors", [])))
             free_url, free_source = find_free_version(p["doi"], p["title"])
             p["free_url"] = free_url
             p["free_source"] = free_source
