@@ -1194,9 +1194,10 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
         if enriched:
             results_by_journal[journal["short"]] = enriched
 
-    total = sum(len(papers) for papers in results_by_journal.values())
+    total = sum(len(papers) for papers in results_by_journal.values() if papers is not None)
+    has_unavailable = any(v is None for v in results_by_journal.values())
 
-    if total == 0:
+    if total == 0 and not has_unavailable:
         print("\nNothing new across all journals — no email sent.")
         return
 
@@ -1206,7 +1207,22 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
     if dry_run:
         print("\n--- PLAIN TEXT PREVIEW ---\n")
         print(text)
-        print("\n[Dry run: email NOT sent, seen files NOT updated]")
+        would_send_to = _get_subscribers("academic") if not TEST_MODE else [EMAIL_TO]
+        print(f"\n[Dry run: seen files NOT updated]")
+        print(f"Would send to {len(would_send_to)} subscriber(s): {', '.join(would_send_to)}")
+        print(f"Sending test copy to {EMAIL_TO}...")
+        try:
+            with _smtp_connection() as server:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = f"[TEST] PoliSci Journal Digest ({datetime.now().strftime('%Y-%m-%d')})"
+                msg["From"] = f"PoliSci Journal Digest <{GMAIL_USER}>"
+                msg["To"] = EMAIL_TO
+                msg.attach(MIMEText(text, "plain", "utf-8"))
+                msg.attach(MIMEText(html, "html", "utf-8"))
+                server.send_message(msg)
+            print(f"Test email sent to {EMAIL_TO}")
+        except Exception as e:
+            print(f"Test email FAILED: {e}")
         return
 
     send_digest_email(html, text, total)
