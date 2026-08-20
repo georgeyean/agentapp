@@ -1054,14 +1054,19 @@ def render_email_text(results_by_journal):
 # ── Email sending ─────────────────────────────────────────────────────────────
 
 def _get_subscribers(list_name="academic"):
-    if TEST_MODE:
-        return [EMAIL_TO]
-    filepath = os.path.join(os.path.dirname(os.path.abspath(__file__)), "subscribers", f"{list_name}.txt")
-    if not os.path.exists(filepath):
-        return [EMAIL_TO]
-    with open(filepath, "r", encoding="utf-8") as f:
-        emails = [line.strip().lower() for line in f if line.strip()]
-    return emails or [EMAIL_TO]
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # check script_dir/subscribers/ first, then parent/subscribers/
+    candidates = [
+        os.path.join(script_dir, "subscribers", f"{list_name}.txt"),
+        os.path.join(os.path.dirname(script_dir), "subscribers", f"{list_name}.txt"),
+    ]
+    filepath = next((p for p in candidates if os.path.exists(p)), None)
+    if filepath:
+        with open(filepath, "r", encoding="utf-8") as f:
+            emails = [line.strip().lower() for line in f if line.strip()]
+        if emails:
+            return emails
+    return [EMAIL_TO]
 
 
 def _smtp_connection():
@@ -1083,7 +1088,11 @@ def _smtp_connection():
 def send_digest_email(html, text, total_count):
     today = datetime.now().strftime("%Y-%m-%d")
     subject = f"PoliSci Journal Digest ({today}) — {total_count} new paper{'s' if total_count != 1 else ''}"
-    subscribers = _get_subscribers("academic")
+    all_subs = _get_subscribers("academic")
+    print(f"Subscriber list ({len(all_subs)}): {', '.join(all_subs)}")
+    subscribers = [EMAIL_TO] if TEST_MODE else all_subs
+    if TEST_MODE:
+        print(f"TEST_MODE=True — sending only to {EMAIL_TO}")
     with _smtp_connection() as server:
         for recipient in subscribers:
             msg = MIMEMultipart("alternative")
@@ -1175,6 +1184,17 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
             if raw_text and _pdf_title_ok(raw_text, p["title"]):
                 p["full_text"] = raw_text
                 print(f"      PDF text extracted ({len(raw_text)} chars)")
+                # if abstract still missing, pull it from the PDF
+                if not p.get("abstract"):
+                    abst_m = re.search(
+                        r"abstract[:\s]+(.*?)(?:introduction|keywords|\n1\.|\ni\.|jel)",
+                        raw_text[:5000], re.IGNORECASE | re.DOTALL
+                    )
+                    if abst_m:
+                        extracted = abst_m.group(1).strip()[:2000]
+                        if len(extracted) > 80:
+                            p["abstract"] = extracted
+                            print(f"      Abstract extracted from PDF")
             elif raw_text:
                 print(f"      PDF text discarded — title mismatch (wrong paper downloaded)")
                 p["full_text"] = ""
@@ -1207,9 +1227,11 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
     if dry_run:
         print("\n--- PLAIN TEXT PREVIEW ---\n")
         print(text)
-        would_send_to = _get_subscribers("academic") if not TEST_MODE else [EMAIL_TO]
+        all_subscribers = _get_subscribers("academic")
         print(f"\n[Dry run: seen files NOT updated]")
-        print(f"Would send to {len(would_send_to)} subscriber(s): {', '.join(would_send_to)}")
+        print(f"Subscriber list ({len(all_subscribers)}): {', '.join(all_subscribers)}")
+        if TEST_MODE:
+            print("TEST_MODE=True — would send only to you in production run")
         print(f"Sending test copy to {EMAIL_TO}...")
         try:
             with _smtp_connection() as server:
