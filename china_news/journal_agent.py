@@ -894,17 +894,13 @@ def render_journal_section_html(journal, papers):
         links = []
         if p.get("free_url"):
             links.append(f'<a href="{p["free_url"]}" style="font-size:12px;color:#16a34a;text-decoration:none;">Open Access</a>')
-        if p.get("local_path"):
-            # web_url requires PAPERS_BASE_URL to be set; fall back to free_url until then
-            backup_href = p.get("web_url") or p.get("free_url")
-            if backup_href:
-                links.append(f'<a href="{backup_href}" style="font-size:12px;color:#2563eb;text-decoration:none;">Backup copy</a>')
-        if not links:
-            label = "Click to search manually" if a.get("content_missing") else "Search for paper"
-            links.append(
-                f'<a href="https://scholar.google.com/scholar?q={quote(p["title"])}" '
-                f'style="font-size:12px;color:#d97706;text-decoration:none;">{label}</a>'
-            )
+        backup_href = p.get("local_path") and p.get("web_url")
+        if backup_href:
+            links.append(f'<a href="{backup_href}" style="font-size:12px;color:#2563eb;text-decoration:none;">Backup copy</a>')
+        links.append(
+            f'<a href="https://scholar.google.com/scholar?q={quote(p["title"])}" '
+            f'style="font-size:12px;color:#d97706;text-decoration:none;">View on Google Scholar</a>'
+        )
         free_link_html = ' &nbsp;·&nbsp; '.join(links)
         free_badge = ""
 
