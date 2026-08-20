@@ -2,6 +2,7 @@ import feedparser
 import json
 import smtplib
 import os
+import time
 from datetime import datetime, timedelta
 from openai import OpenAI
 from email.mime.text import MIMEText
@@ -278,6 +279,7 @@ def send_market_email(html, text):
             msg.attach(MIMEText(html, "html", "utf-8"))
             server.send_message(msg)
             print(f"S&P 500 briefing sent to {recipient}")
+            time.sleep(2)
 
     print(f"S&P 500 briefing sent to {len(recipients)} subscriber(s)")
 

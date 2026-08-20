@@ -267,6 +267,7 @@ def send_email(html, text):
                 print(f"Sent to {recipient}")
             except Exception as e:
                 print(f"Failed to send to {recipient}: {e}")
+            time.sleep(2)
         
         
 def validate_summary(json_str):
