@@ -1250,7 +1250,27 @@ def main(dry_run=False, max_per_journal=PAPERS_PER_JOURNAL):
     has_unavailable = any(v is None for v in results_by_journal.values())
 
     if total == 0 and not has_unavailable:
-        print("\nNothing new across all journals — no email sent.")
+        print("\nNothing new across all journals — sending no-new-papers notice.")
+        today = datetime.now().strftime("%Y-%m-%d")
+        subject = f"PoliSci Journal Digest ({today}) — No new papers this week"
+        body_html = f"""<html><body style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#333;">
+<h2 style="color:#1e3a5f;">PoliSci Journal Digest</h2>
+<p style="color:#666;">{today}</p>
+<p>No new papers were found across all tracked journals this week.</p>
+</body></html>"""
+        body_text = f"PoliSci Journal Digest\n{today}\n\nNo new papers were found across all tracked journals this week.\n"
+        try:
+            with _smtp_connection() as server:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = f"PoliSci Journal Digest <{GMAIL_USER}>"
+                msg["To"] = EMAIL_TO
+                msg.attach(MIMEText(body_text, "plain", "utf-8"))
+                msg.attach(MIMEText(body_html, "html", "utf-8"))
+                server.send_message(msg)
+            print(f"No-new-papers notice sent to {EMAIL_TO}")
+        except Exception as e:
+            print(f"Failed to send notice: {e}")
         return
 
     html = render_email_html(results_by_journal)
