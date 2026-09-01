@@ -7,6 +7,7 @@
 import feedparser
 from datetime import datetime, timedelta
 from openai import OpenAI
+import openai
 import smtplib
 import time
 from email.mime.text import MIMEText
@@ -99,12 +100,16 @@ def analyze_articles(articles):
         f"News:\n{content}"
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+    except openai.RateLimitError as e:
+        if "credit_balance_exhausted" in str(e):
+            _send_credit_alert("China Brief (news_agent.py)")
+        raise
     return response.choices[0].message.content
 
 
@@ -290,6 +295,27 @@ def validate_summary(json_str):
 
     except (json.JSONDecodeError, ValueError) as e:
         return False, f"Invalid JSON: {e}"
+
+
+def _send_credit_alert(agent_name):
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"Agent Alert <{EMAIL_USER}>"
+        msg["To"] = EMAIL_TO
+        msg["Subject"] = f"⚠️ OpenAI Credits Exhausted — {datetime.now().strftime('%Y-%m-%d')}"
+        html = f"""<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#c0392b;">OpenAI Credits Exhausted</h2>
+<p><strong>Agent:</strong> {agent_name}</p>
+<p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p>Please top up at <a href="https://platform.openai.com/settings/organization/billing">platform.openai.com/settings/organization/billing</a>.</p>
+</div>"""
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        print("Credit exhaustion alert sent.")
+    except Exception as e:
+        print(f"Failed to send credit alert: {e}")
 
 
 def send_failure_alert(reason, raw_response=""):

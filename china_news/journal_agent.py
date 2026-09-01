@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 from urllib.parse import quote
 from openai import OpenAI
+import openai
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -832,6 +833,10 @@ In one sentence, state what was corrected (which paper, which error). If unknown
             max_tokens=120,
         )
         return resp.choices[0].message.content.strip()
+    except openai.RateLimitError as e:
+        if "credit_balance_exhausted" in str(e):
+            _send_credit_alert("PoliSci Journal Digest (journal_agent.py)")
+        return "Not available"
     except Exception:
         return "Not available"
 
@@ -897,6 +902,10 @@ Return ONLY valid JSON (no markdown fences):
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         return json.loads(raw)
+    except openai.RateLimitError as e:
+        if "credit_balance_exhausted" in str(e):
+            _send_credit_alert("PoliSci Journal Digest (journal_agent.py)")
+        print(f"    GPT error for '{paper['title'][:60]}': {e}")
     except Exception as e:
         print(f"    GPT error for '{paper['title'][:60]}': {e}")
         return {
@@ -1100,6 +1109,26 @@ def _get_subscribers(list_name="academic"):
         if emails:
             return emails
     return [EMAIL_TO]
+
+
+def _send_credit_alert(agent_name):
+    try:
+        html = f"""<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#c0392b;">OpenAI Credits Exhausted</h2>
+<p><strong>Agent:</strong> {agent_name}</p>
+<p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p>Please top up at <a href="https://platform.openai.com/settings/organization/billing">platform.openai.com/settings/organization/billing</a>.</p>
+</div>"""
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"Agent Alert <{GMAIL_USER}>"
+        msg["To"] = EMAIL_TO
+        msg["Subject"] = f"⚠️ OpenAI Credits Exhausted — {datetime.now().strftime('%Y-%m-%d')}"
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with _smtp_connection() as server:
+            server.send_message(msg)
+        print("Credit exhaustion alert sent.")
+    except Exception as e:
+        print(f"Failed to send credit alert: {e}")
 
 
 def _smtp_connection():

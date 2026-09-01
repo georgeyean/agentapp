@@ -5,6 +5,7 @@ import os
 import time
 from datetime import datetime, timedelta
 from openai import OpenAI
+import openai
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
@@ -87,14 +88,19 @@ Return ONLY valid JSON in this exact format:
   }}
 }}"""
 
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": "You are a senior equity strategist. Be concise, data-driven, and specific. Return only valid JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.3,
-    )
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "You are a senior equity strategist. Be concise, data-driven, and specific. Return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+    except openai.RateLimitError as e:
+        if "credit_balance_exhausted" in str(e):
+            _send_credit_alert("S&P 500 Brief (stock_prediction.py)")
+        raise
 
     return response.choices[0].message.content
 
@@ -282,6 +288,27 @@ def send_market_email(html, text):
             time.sleep(2)
 
     print(f"S&P 500 briefing sent to {len(recipients)} subscriber(s)")
+
+
+def _send_credit_alert(agent_name):
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = f"Agent Alert <{GMAIL_USER}>"
+        msg["To"] = GMAIL_USER
+        msg["Subject"] = f"⚠️ OpenAI Credits Exhausted — {datetime.now().strftime('%Y-%m-%d')}"
+        html = f"""<div style="font-family:-apple-system,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+<h2 style="color:#c0392b;">OpenAI Credits Exhausted</h2>
+<p><strong>Agent:</strong> {agent_name}</p>
+<p><strong>Time:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p>Please top up at <a href="https://platform.openai.com/settings/organization/billing">platform.openai.com/settings/organization/billing</a>.</p>
+</div>"""
+        msg.attach(MIMEText(html, "html", "utf-8"))
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.send_message(msg)
+        print("Credit exhaustion alert sent.")
+    except Exception as e:
+        print(f"Failed to send credit alert: {e}")
 
 
 def send_market_failure_alert(reason, raw_response=""):
