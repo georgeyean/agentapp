@@ -8,6 +8,7 @@ import feedparser
 from datetime import datetime, timedelta
 from openai import OpenAI
 import smtplib
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import markdown
