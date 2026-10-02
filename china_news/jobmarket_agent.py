@@ -193,51 +193,44 @@ Links found on this page (anchor text → URL):
 
 # ── GPT: extract papers from personal website ─────────────────────────────────
 
-def extract_papers(name, page_text, links):
-    """Returns { publications: [{title, venue, url}], working_papers: [{title, url}] }"""
-    links_text = "\n".join(f'  "{anchor}" → {href}' for anchor, href in list(links.items())[:150])
+def extract_papers(name, page_text):
+    """Returns { pub_count, journals, wp_count } — summary only, no titles."""
+    prompt = f"""From this academic website of {name} (Political Science PhD candidate):
 
-    prompt = f"""This is the personal academic website of {name}, a PhD candidate in Political Science.
+1. Count how many journal publications or forthcoming articles they have (peer-reviewed only, not working papers).
+2. List the journal/venue abbreviations (e.g. APSR, JOP, IO, AJPS, World Politics).
+3. Count how many working papers or papers under review they have.
 
-Extract their papers in two categories:
-
-1. publications: papers published in a journal or forthcoming. For each: title, venue (journal name), url (link to paper if present in the links list, else "")
-2. working_papers: working papers, papers under review, or draft papers. For each: title, url (link if present in the links list, else "")
-
-Return JSON in this exact format:
-{{"publications": [{{"title": "...", "venue": "...", "url": ""}}], "working_papers": [{{"title": "...", "url": ""}}]}}
-
-If none found in a category, return an empty list for it.
+Return ONLY this JSON (no other text):
+{{"pub_count": 0, "journals": [], "wp_count": 0}}
 
 Page text:
-{page_text[:5000]}
-
-Links on the page:
-{links_text}"""
+{page_text[:6000]}"""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=1200,
+            max_tokens=200,
         )
         raw = response.choices[0].message.content.strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         result = json.loads(raw)
         return {
-            "publications": result.get("publications", []),
-            "working_papers": result.get("working_papers", []),
+            "pub_count": int(result.get("pub_count", 0)),
+            "journals":  result.get("journals", []),
+            "wp_count":  int(result.get("wp_count", 0)),
         }
     except openai.RateLimitError as e:
         if "credit_balance_exhausted" in str(e):
             _send_credit_alert("Job Market Agent (jobmarket_agent.py)")
         print(f"    GPT rate limit: {e}")
-        return {"publications": [], "working_papers": []}
+        return {"pub_count": 0, "journals": [], "wp_count": 0}
     except Exception as e:
         print(f"    GPT failed for {name}: {e}")
-        return {"publications": [], "working_papers": []}
+        return {"pub_count": 0, "journals": [], "wp_count": 0}
 
 
 # ── SMTP / email helpers ──────────────────────────────────────────────────────
@@ -317,35 +310,22 @@ def _candidate_card_html(c, show_school=True):
     )
     school_tag = f'<span style="font-size:11px;color:#888;margin-left:6px;">{c.get("school","")}</span>' if show_school else ""
 
-    pubs = c.get("publications", [])
-    wps  = c.get("working_papers", [])
-    journals = ", ".join(p["venue"] for p in pubs if p.get("venue"))
-    pub_str = f"{len(pubs)} pub{'s' if len(pubs)!=1 else ''}" + (f" ({journals})" if journals else "")
-    wp_str  = f"{len(wps)} WP"
-    summary = f"{pub_str} &nbsp;·&nbsp; {wp_str}" if (pubs or wps) else "No papers listed"
+    pub_count = c.get("pub_count", 0)
+    journals  = c.get("journals", [])
+    wp_count  = c.get("wp_count", 0)
+    journals_str = f" ({', '.join(journals)})" if journals else ""
+    pub_str = f"{pub_count} pub{'s' if pub_count != 1 else ''}{journals_str}"
+    wp_str  = f"{wp_count} WP"
+    summary = f"{pub_str} &nbsp;·&nbsp; {wp_str}"
 
     html = f"""
 <div style="margin-bottom:12px;padding:10px 12px;background:#fafafa;border-radius:6px;border-left:3px solid {color};">
   <div style="margin-bottom:3px;">{name_html}{school_tag}</div>
-  <p style="font-size:11px;color:#888;margin:0 0 6px;">{summary}</p>"""
+  <p style="font-size:11px;color:#888;margin:0 0 4px;">{summary}</p>"""
 
-    if c.get("new_papers"):
-        html += """  <div style="border-top:1px solid #eee;padding-top:6px;">
-    <div style="font-size:10px;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">New this week</div>"""
-        for p in c["new_papers"]:
-            title_html = (
-                f'<a href="{p["url"]}" style="color:#1c1b18;text-decoration:none;">{p["title"]}</a>'
-                if p.get("url") else p["title"]
-            )
-            venue = f' <span style="color:#888;">— {p["venue"]}</span>' if p.get("venue") else ""
-            status = (p.get("status") or "").lower()
-            sc = "#15803d" if "publish" in status or "forthcoming" in status else "#6b7280"
-            html += f"""
-    <div style="margin-bottom:5px;padding:5px 8px;background:#fffbf0;border:1px solid #fed7aa;border-radius:4px;">
-      <div style="font-size:12px;margin-bottom:1px;">{title_html}{venue}</div>
-      <span style="font-size:10px;font-weight:600;color:{sc};">{status.upper()}</span>
-    </div>"""
-        html += "  </div>"
+    delta = c.get("delta")
+    if delta:
+        html += f'  <p style="font-size:10px;font-weight:700;color:#b45309;margin:0;">↑ {delta}</p>'
 
     html += "</div>"
     return html
@@ -354,7 +334,7 @@ def _candidate_card_html(c, show_school=True):
 def render_html(all_candidates_by_school):
     today = datetime.now().strftime("%B %d, %Y")
     by_sf = _flatten_by_subfield(all_candidates_by_school)
-    total_new = sum(len(c["new_papers"]) for v in all_candidates_by_school.values() for c in v)
+    total_updated = sum(1 for v in all_candidates_by_school.values() for c in v if c.get("delta"))
     total_cands = sum(len(v) for v in all_candidates_by_school.values())
 
     html = f"""<html><body style="margin:0;padding:0;background:#f0f0f0;">
@@ -362,7 +342,7 @@ def render_html(all_candidates_by_school):
 <div style="background:#fff;border-radius:8px;overflow:hidden;color:#222;">
 <div style="background:#1c1b18;padding:24px 20px;">
   <h1 style="margin:0 0 4px;font-size:20px;font-weight:700;color:#fff;">PoliSci Job Market</h1>
-  <p style="margin:0;font-size:12px;color:#6b6962;">{today} &nbsp;·&nbsp; {total_cands} candidates &nbsp;·&nbsp; {total_new} new paper{'s' if total_new!=1 else ''} this week</p>
+  <p style="margin:0;font-size:12px;color:#6b6962;">{today} &nbsp;·&nbsp; {total_cands} candidates &nbsp;·&nbsp; {total_updated} updated this week</p>
 </div>
 <div style="padding:20px;">"""
 
@@ -398,22 +378,24 @@ def render_text(all_candidates_by_school):
         lines.append(f"\n[{sf}] {label} ({len(candidates)})")
         lines.append("=" * 40)
         for c in candidates:
-            pubs = c.get("publications", [])
-            wps  = c.get("working_papers", [])
-            journals = ", ".join(p["venue"] for p in pubs if p.get("venue"))
-            pub_str = f"{len(pubs)} pub" + (f" ({journals})" if journals else "")
-            lines.append(f"  {c['name']} · {c.get('school','')} — {pub_str} · {len(wps)} WP")
-            for p in c["new_papers"]:
-                venue = f" [{p['venue']}]" if p.get("venue") else ""
-                url = f" {p['url']}" if p.get("url") else ""
-                lines.append(f"    NEW: {p['title']}{venue}{url}")
+            pub_count = c.get("pub_count", 0)
+            journals  = c.get("journals", [])
+            wp_count  = c.get("wp_count", 0)
+            journals_str = f" ({', '.join(journals)})" if journals else ""
+            pub_str = f"{pub_count} pub{journals_str}"
+            line = f"  {c['name']} · {c.get('school','')} — {pub_str} · {wp_count} WP"
+            if c.get("site_url"):
+                line += f"  {c['site_url']}"
+            if c.get("delta"):
+                line += f"  [↑ {c['delta']}]"
+            lines.append(line)
     return "\n".join(lines)
 
 
 def send_email(all_candidates_by_school):
     today = datetime.now().strftime("%Y-%m-%d")
-    total_new = sum(len(c["new_papers"]) for v in all_candidates_by_school.values() for c in v)
-    subject = f"PoliSci Job Market ({today})" + (f" — {total_new} new paper{'s' if total_new!=1 else ''}" if total_new else "")
+    total_updated = sum(1 for v in all_candidates_by_school.values() for c in v if c.get("delta"))
+    subject = f"PoliSci Job Market ({today})" + (f" — {total_updated} updated" if total_updated else "")
     with _smtp_connection() as server:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -454,7 +436,7 @@ def _get_dept_url(school, seen):
 
 def main(dry_run=False):
     seen = load_seen()
-    # seen: { "_dept_urls": { short: url }, school_short: { candidate_name: { site_url, pub_titles, wp_titles } } }
+    # seen: { "_dept_urls": { short: url }, school_short: { candidate_name: { site_url, pub_count, wp_count } } }
     all_by_school = {}
 
     for school in SCHOOLS:
@@ -490,57 +472,54 @@ def main(dry_run=False):
                 continue
 
             prev = school_seen.get(name, {})
-            seen_pub_titles = set(prev.get("pub_titles", []))
-            seen_wp_titles  = set(prev.get("wp_titles", []))
 
             # Reuse cached site_url for known candidates; use GPT-extracted one for new ones
-            if prev.get("site_url"):
-                site_url = prev["site_url"]
-            else:
-                site_url = c.get("site_url", "")
+            site_url = prev.get("site_url") or c.get("site_url", "")
 
             print(f"  → {name}", end="")
 
-            papers = {"publications": [], "working_papers": []}
+            papers = {"pub_count": 0, "journals": [], "wp_count": 0}
             if site_url:
-                site_text, site_links = fetch_page(site_url)
+                site_text, _site_links = fetch_page(site_url)
                 if site_text:
-                    papers = extract_papers(name, site_text, site_links)
-                    n = len(papers["publications"]) + len(papers["working_papers"])
-                    print(f" — {n} papers", end="")
+                    papers = extract_papers(name, site_text)
+                    print(f" — {papers['pub_count']} pubs · {papers['wp_count']} WPs", end="")
                 time.sleep(1)
             else:
                 print(" — no site URL", end="")
             print()
 
-            pubs = papers["publications"]
-            wps  = papers["working_papers"]
+            pub_count = papers["pub_count"]
+            journals  = papers["journals"]
+            wp_count  = papers["wp_count"]
 
-            new_papers = []
-            for p in pubs:
-                if p["title"] not in seen_pub_titles:
-                    new_papers.append({**p, "status": "published"})
-            for p in wps:
-                if p["title"] not in seen_wp_titles:
-                    new_papers.append({**p, "status": "working paper"})
-
-            if new_papers:
-                print(f"    {len(new_papers)} new: {', '.join(p['title'][:50] for p in new_papers)}")
+            # Detect changes vs previous run
+            prev_pub = prev.get("pub_count", 0)
+            prev_wp  = prev.get("wp_count", 0)
+            delta_parts = []
+            if pub_count > prev_pub:
+                delta_parts.append(f"+{pub_count - prev_pub} pub{'s' if pub_count - prev_pub != 1 else ''}")
+            if wp_count > prev_wp:
+                delta_parts.append(f"+{wp_count - prev_wp} WP")
+            delta = ", ".join(delta_parts) if delta_parts else None
+            if delta:
+                print(f"    ↑ {delta}")
 
             school_rows.append({
                 "name": name,
                 "subfield": c.get("subfield", ""),
                 "site_url": site_url,
-                "publications": pubs,
-                "working_papers": wps,
-                "new_papers": new_papers,
+                "pub_count": pub_count,
+                "journals":  journals,
+                "wp_count":  wp_count,
+                "delta": delta,
             })
 
             if not dry_run:
                 school_seen[name] = {
-                    "site_url": site_url,
-                    "pub_titles": list({p["title"] for p in pubs} | seen_pub_titles),
-                    "wp_titles":  list({p["title"] for p in wps}  | seen_wp_titles),
+                    "site_url":  site_url,
+                    "pub_count": pub_count,
+                    "wp_count":  wp_count,
                 }
 
             time.sleep(1)
@@ -552,9 +531,9 @@ def main(dry_run=False):
         print("\nNo candidates found — no email sent.")
         return
 
-    total_new = sum(len(c["new_papers"]) for v in all_by_school.values() for c in v)
+    total_updated = sum(1 for v in all_by_school.values() for c in v if c.get("delta"))
     total_cands = sum(len(v) for v in all_by_school.values())
-    print(f"\n{total_cands} candidates · {total_new} new papers")
+    print(f"\n{total_cands} candidates · {total_updated} updated")
 
     if dry_run:
         print("\n--- DRY RUN ---")
