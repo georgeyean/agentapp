@@ -145,23 +145,70 @@ def search_department_url(query):
     return None
 
 
-def search_personal_site(name, school):
-    """Search DuckDuckGo for a candidate's personal academic website."""
-    query = f'"{name}" {school} political science academic personal website'
-    personal_keywords = [
-        "github.io", "sites.google.com", ".co.uk", "scholars.harvard",
-        "wordpress.com", "wixsite.com", "squarespace.com", "weebly.com",
-        "academic.edu", "scholar.google", "people.umass", "faculty.",
-    ]
-    skip = ["linkedin.com", "twitter.com", "x.com", "facebook.com", "instagram.com"]
-    for href in _ddg_search(query):
-        if any(s in href for s in skip):
+SKIP_SITE_DOMAINS = [
+    "linkedin.com", "twitter.com", "x.com", "facebook.com", "instagram.com",
+    "wikipedia.org", "researchgate.net", "semanticscholar.org",
+    "jstor.org", "ssrn.com",
+]
+SKIP_SITE_PATHS = [
+    "/directory/", "/people/hire", "job-market", "job_market",
+    "/graduate/", "/faculty/", "/grad-students/", "/hire",
+]
+PERSONAL_HOSTS = [
+    "github.io", "sites.google.com", "scholars.harvard", "scholars.",
+    "wordpress.com", "wixsite.com", "squarespace.com", "weebly.com",
+    "notion.site", "strikingly.com",
+]
+
+
+def _looks_like_personal_site(href, name):
+    """True if href looks like a personal academic website (not a dept/social page)."""
+    h = href.lower()
+    if any(d in h for d in SKIP_SITE_DOMAINS):
+        return False
+    if any(p in h for p in SKIP_SITE_PATHS):
+        return False
+    parts = name.lower().split()
+    first, last = parts[0], parts[-1]
+    has_name = (first in h or last in h
+                or (first[0] + last) in h or (first + last) in h)
+    is_personal_host = any(ph in h for ph in PERSONAL_HOSTS)
+    return has_name or is_personal_host
+
+
+def find_site_in_dept_links(name, dept_links):
+    """Find a candidate's personal site URL from the department page link map."""
+    for anchor, href in dept_links.items():
+        if name.lower() not in anchor.lower():
             continue
-        if any(k in href for k in personal_keywords):
+        if _looks_like_personal_site(href, name):
             return href
-        # Accept any .edu personal path (e.g. /~name, /people/name)
-        if ".edu" in href and any(pat in href for pat in ["/~", "/personal/", name.lower().replace(" ", "")]):
-            return href
+        # Directory or dept page — follow it and look for an external personal link
+        dir_text, dir_links = fetch_page(href)
+        for a_text, a_href in dir_links.items():
+            if _looks_like_personal_site(a_href, name):
+                return a_href
+    return None
+
+
+def search_personal_site_bing(name, school):
+    """Bing fallback: search for a candidate's personal website."""
+    time.sleep(3)
+    parts = name.split()
+    # Quote last name + first to avoid "Can" being parsed as a modal verb
+    name_q = f'"{parts[-1]}" "{parts[0]}"' if len(parts) > 1 else f'"{name}"'
+    query = f'{name_q} political science {school} academic website'
+    try:
+        headers = {**HEADERS, "Accept-Language": "en-US,en;q=0.9"}
+        resp = requests.get("https://www.bing.com/search", params={"q": query}, headers=headers, timeout=15)
+        from bs4 import BeautifulSoup as _BS
+        soup = _BS(resp.text, "html.parser")
+        for a in soup.select("li.b_algo h2 a"):
+            href = a.get("href", "")
+            if _looks_like_personal_site(href, name):
+                return href
+    except Exception as e:
+        print(f"    Bing search failed: {e}")
     return None
 
 
@@ -494,15 +541,19 @@ def main(dry_run=False):
 
             prev = school_seen.get(name, {})
 
-            # Use cached site_url; otherwise search for personal website
+            # Use cached site_url; otherwise discover via dept links then Bing
             site_url = prev.get("site_url", "")
             print(f"  → {name}", end="")
 
             papers = {"pub_count": 0, "journals": [], "wp_count": 0}
             if not site_url:
-                site_url = search_personal_site(name, school_name) or ""
+                site_url = find_site_in_dept_links(name, links) or ""
                 if site_url:
-                    print(f" (found via search)", end="")
+                    print(f" (dept link)", end="")
+                else:
+                    site_url = search_personal_site_bing(name, school_name) or ""
+                    if site_url:
+                        print(f" (Bing)", end="")
 
             if site_url:
                 site_text, _ = fetch_page(site_url)
