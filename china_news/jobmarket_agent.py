@@ -39,17 +39,28 @@ HEADERS = {
 }
 
 SCHOOLS = [
-    {"name": "Harvard University",                "short": "Harvard",      "url": "https://gov.harvard.edu/job-market"},
-    {"name": "Princeton University",               "short": "Princeton",    "url": "https://politics.princeton.edu/job-market"},
-    {"name": "Stanford University",                "short": "Stanford",     "url": "https://politicalscience.stanford.edu/graduate/job-market"},
-    {"name": "MIT",                                "short": "MIT",          "url": "https://polisci.mit.edu/graduate/job-market"},
-    {"name": "University of Michigan",             "short": "Michigan",     "url": "https://lsa.umich.edu/polisci/graduates/job-market.html"},
-    {"name": "UC Berkeley",                        "short": "Berkeley",     "url": "https://polisci.berkeley.edu/graduate/job-market-candidates"},
-    {"name": "Yale University",                    "short": "Yale",         "url": "https://politicalscience.yale.edu/graduate/job-market"},
-    {"name": "Columbia University",                "short": "Columbia",     "url": "https://polisci.columbia.edu/graduate-program/job-market"},
-    {"name": "University of Chicago",              "short": "UChicago",     "url": "https://political-science.uchicago.edu/graduate/job-market"},
-    {"name": "NYU",                                "short": "NYU",          "url": "https://as.nyu.edu/departments/politics/graduate-program/job-market.html"},
-    {"name": "UC San Diego",                       "short": "UCSD",         "url": "https://polisci.ucsd.edu/graduate/job-market/index.html"},
+    {"name": "Harvard University",      "short": "Harvard",   "url": "https://gov.harvard.edu/job-market",
+     "search": "Harvard Government department job market candidates political science"},
+    {"name": "Princeton University",    "short": "Princeton", "url": "https://politics.princeton.edu/graduate/job-market-candidates",
+     "search": "Princeton politics department job market candidates political science"},
+    {"name": "Stanford University",     "short": "Stanford",  "url": "https://politicalscience.stanford.edu/graduate-program/job-market",
+     "search": "Stanford political science department job market candidates"},
+    {"name": "MIT",                     "short": "MIT",       "url": "https://polisci.mit.edu/job-market",
+     "search": "MIT political science department job market candidates"},
+    {"name": "University of Michigan",  "short": "Michigan",  "url": "https://lsa.umich.edu/polisci/graduates/job-market-candidates.html",
+     "search": "University Michigan political science job market candidates"},
+    {"name": "UC Berkeley",             "short": "Berkeley",  "url": "https://polisci.berkeley.edu/graduate/job-market",
+     "search": "UC Berkeley political science job market candidates"},
+    {"name": "Yale University",         "short": "Yale",      "url": "https://politicalscience.yale.edu/graduate/job-market-candidates",
+     "search": "Yale political science department job market candidates"},
+    {"name": "Columbia University",     "short": "Columbia",  "url": "https://polisci.columbia.edu/content/job-market",
+     "search": "Columbia political science department job market candidates"},
+    {"name": "University of Chicago",   "short": "UChicago",  "url": "https://political-science.uchicago.edu/job-market",
+     "search": "University Chicago political science job market candidates"},
+    {"name": "NYU",                     "short": "NYU",       "url": "https://as.nyu.edu/departments/politics/graduate-program/job-market.html",
+     "search": "NYU politics department job market candidates political science"},
+    {"name": "UC San Diego",            "short": "UCSD",      "url": "https://polisci.ucsd.edu/graduate/job-market/index.html",
+     "search": "UC San Diego political science job market candidates"},
 ]
 
 
@@ -70,18 +81,59 @@ def save_seen(seen):
 
 # ── Scraping ──────────────────────────────────────────────────────────────────
 
-def fetch_page_text(url):
+def fetch_page(url):
+    """Fetch a page and return (text, links_map) where links_map is {anchor_text: href}."""
     try:
         resp = requests.get(url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
         if not HAS_BS4:
-            return re.sub(r"<[^>]+>", " ", resp.text)
+            text = re.sub(r"<[^>]+>", " ", resp.text)
+            return text, {}
         soup = BeautifulSoup(resp.text, "html.parser")
+        # Collect all links before stripping tags
+        links = {}
+        for a in soup.find_all("a", href=True):
+            anchor = a.get_text(strip=True)
+            href = a["href"]
+            if anchor and href and not href.startswith("#") and not href.startswith("mailto:"):
+                # Make relative URLs absolute
+                if href.startswith("/"):
+                    from urllib.parse import urlparse
+                    parsed = urlparse(url)
+                    href = f"{parsed.scheme}://{parsed.netloc}{href}"
+                links[anchor] = href
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
-        return soup.get_text(separator="\n", strip=True)
+        text = soup.get_text(separator="\n", strip=True)
+        return text, links
     except Exception as e:
         print(f"    Fetch failed ({url}): {e}")
+        return None, {}
+
+
+def search_department_url(query):
+    """Search DuckDuckGo for the department's job market page URL."""
+    try:
+        resp = requests.get(
+            "https://duckduckgo.com/html/",
+            params={"q": query, "kl": "us-en"},
+            headers=HEADERS, timeout=15
+        )
+        if not HAS_BS4:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for result in soup.select(".result__url, .result__a"):
+            href = result.get("href", "") or result.get_text(strip=True)
+            # Decode DuckDuckGo redirect URLs
+            if "uddg=" in href:
+                from urllib.parse import parse_qs, urlparse, unquote
+                qs = parse_qs(urlparse(href).query)
+                href = unquote(qs.get("uddg", [""])[0])
+            if href.startswith("http") and ("job-market" in href or "job_market" in href or "jobmarket" in href):
+                return href
+        return None
+    except Exception as e:
+        print(f"    DuckDuckGo search failed: {e}")
         return None
 
 
@@ -96,7 +148,10 @@ SUBFIELD_DESCRIPTIONS = (
     "Methods = Formal models, causal inference, measurement, experiments, statistical methods as the primary contribution."
 )
 
-def extract_candidates(school_name, page_text):
+def extract_candidates(school_name, page_text, links):
+    # Format links as readable text for GPT
+    links_text = "\n".join(f'  "{anchor}" → {href}' for anchor, href in list(links.items())[:200])
+
     prompt = f"""This is the job market page for the {school_name} Political Science department.
 
 Extract all PhD job market candidates. For each return:
@@ -104,12 +159,15 @@ Extract all PhD job market candidates. For each return:
 - subfield: classify into exactly one of: IR, CP, AP, Theory, Methods — based on their dissertation/research. {SUBFIELD_DESCRIPTIONS}
 - dissertation: dissertation title or research focus
 - advisor: advisor name(s), or ""
-- site_url: URL to their personal website or CV page, or ""
+- site_url: URL to their personal website or CV page — look it up in the links list below by matching their name
 
 Return a JSON array. If no candidates found, return [].
 
 Page text:
-{page_text[:8000]}"""
+{page_text[:6000]}
+
+Links found on this page (anchor text → URL):
+{links_text}"""
 
     try:
         response = client.chat.completions.create(
@@ -135,14 +193,16 @@ Page text:
 
 # ── GPT: extract papers from personal website ─────────────────────────────────
 
-def extract_papers(name, page_text):
+def extract_papers(name, page_text, links):
     """Returns { publications: [{title, venue, url}], working_papers: [{title, url}] }"""
+    links_text = "\n".join(f'  "{anchor}" → {href}' for anchor, href in list(links.items())[:150])
+
     prompt = f"""This is the personal academic website of {name}, a PhD candidate in Political Science.
 
 Extract their papers in two categories:
 
-1. publications: papers published in a journal or forthcoming. For each: title, venue (journal name), url (link to paper if present, else "")
-2. working_papers: working papers, papers under review, or draft papers. For each: title, url (link if present, else "")
+1. publications: papers published in a journal or forthcoming. For each: title, venue (journal name), url (link to paper if present in the links list, else "")
+2. working_papers: working papers, papers under review, or draft papers. For each: title, url (link if present in the links list, else "")
 
 Return JSON in this exact format:
 {{"publications": [{{"title": "...", "venue": "...", "url": ""}}], "working_papers": [{{"title": "...", "url": ""}}]}}
@@ -150,7 +210,10 @@ Return JSON in this exact format:
 If none found in a category, return an empty list for it.
 
 Page text:
-{page_text[:6000]}"""
+{page_text[:5000]}
+
+Links on the page:
+{links_text}"""
 
     try:
         response = client.chat.completions.create(
@@ -364,22 +427,56 @@ def send_email(all_candidates_by_school):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def _get_dept_url(school, seen):
+    """Return the department page URL, using cached URL if available, else try primary, else DuckDuckGo."""
+    short = school["short"]
+    # Check for a previously discovered (and working) URL in the seen cache
+    cached_url = seen.get("_dept_urls", {}).get(short)
+    if cached_url:
+        print(f"  Using cached dept URL: {cached_url}")
+        return cached_url
+
+    # Try the primary URL first
+    primary = school["url"]
+    try:
+        resp = requests.get(primary, headers=HEADERS, timeout=15)
+        if resp.status_code < 400:
+            return primary
+        print(f"  Primary URL returned {resp.status_code}, searching DuckDuckGo...")
+    except Exception as e:
+        print(f"  Primary URL failed ({e}), searching DuckDuckGo...")
+
+    found = search_department_url(school["search"])
+    if found:
+        print(f"  Found via DuckDuckGo: {found}")
+    return found
+
+
 def main(dry_run=False):
     seen = load_seen()
-    # seen: { school_short: { candidate_name: { site_url, pub_titles: [], wp_titles: [] } } }
-    all_by_school = {}  # school_name -> list of candidate dicts for email
+    # seen: { "_dept_urls": { short: url }, school_short: { candidate_name: { site_url, pub_titles, wp_titles } } }
+    all_by_school = {}
 
     for school in SCHOOLS:
         short = school["short"]
         school_name = school["name"]
         print(f"\n{school_name}")
 
-        page_text = fetch_page_text(school["url"])
+        dept_url = _get_dept_url(school, seen)
+        if not dept_url:
+            print("  Skipping — could not find department page")
+            continue
+
+        page_text, links = fetch_page(dept_url)
         if not page_text:
             print("  Skipping — could not fetch department page")
             continue
 
-        candidates = extract_candidates(school_name, page_text)
+        # Cache discovered dept URL
+        if not dry_run:
+            seen.setdefault("_dept_urls", {})[short] = dept_url
+
+        candidates = extract_candidates(school_name, page_text, links)
         print(f"  {len(candidates)} candidates on page")
         if not candidates:
             continue
@@ -391,27 +488,33 @@ def main(dry_run=False):
             name = c.get("name", "").strip()
             if not name:
                 continue
-            site_url = c.get("site_url", "")
-            print(f"  → {name}", end="")
-
-            papers = {"publications": [], "working_papers": []}
-            if site_url:
-                site_text = fetch_page_text(site_url)
-                if site_text:
-                    papers = extract_papers(name, site_text)
-                    n = len(papers["publications"]) + len(papers["working_papers"])
-                    print(f" — {n} papers", end="")
-                time.sleep(1)
-            else:
-                print(f" — no site URL", end="")
-            print()
-
-            pubs = papers["publications"]
-            wps = papers["working_papers"]
 
             prev = school_seen.get(name, {})
             seen_pub_titles = set(prev.get("pub_titles", []))
             seen_wp_titles  = set(prev.get("wp_titles", []))
+
+            # Reuse cached site_url for known candidates; use GPT-extracted one for new ones
+            if prev.get("site_url"):
+                site_url = prev["site_url"]
+            else:
+                site_url = c.get("site_url", "")
+
+            print(f"  → {name}", end="")
+
+            papers = {"publications": [], "working_papers": []}
+            if site_url:
+                site_text, site_links = fetch_page(site_url)
+                if site_text:
+                    papers = extract_papers(name, site_text, site_links)
+                    n = len(papers["publications"]) + len(papers["working_papers"])
+                    print(f" — {n} papers", end="")
+                time.sleep(1)
+            else:
+                print(" — no site URL", end="")
+            print()
+
+            pubs = papers["publications"]
+            wps  = papers["working_papers"]
 
             new_papers = []
             for p in pubs:
