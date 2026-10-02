@@ -111,30 +111,58 @@ def fetch_page(url):
         return None, {}
 
 
-def search_department_url(query):
-    """Search DuckDuckGo for the department's job market page URL."""
+def _ddg_search(query):
+    """Run a DuckDuckGo HTML search and return decoded result URLs."""
+    from urllib.parse import parse_qs, urlparse, unquote
     try:
         resp = requests.get(
             "https://duckduckgo.com/html/",
             params={"q": query, "kl": "us-en"},
-            headers=HEADERS, timeout=15
+            headers=HEADERS, timeout=15,
         )
         if not HAS_BS4:
-            return None
+            return []
         soup = BeautifulSoup(resp.text, "html.parser")
+        urls = []
         for result in soup.select(".result__url, .result__a"):
             href = result.get("href", "") or result.get_text(strip=True)
-            # Decode DuckDuckGo redirect URLs
             if "uddg=" in href:
-                from urllib.parse import parse_qs, urlparse, unquote
                 qs = parse_qs(urlparse(href).query)
                 href = unquote(qs.get("uddg", [""])[0])
-            if href.startswith("http") and ("job-market" in href or "job_market" in href or "jobmarket" in href):
-                return href
-        return None
+            if href.startswith("http"):
+                urls.append(href)
+        return urls
     except Exception as e:
         print(f"    DuckDuckGo search failed: {e}")
-        return None
+        return []
+
+
+def search_department_url(query):
+    """Search DuckDuckGo for the department's job market page URL."""
+    for href in _ddg_search(query):
+        if "job-market" in href or "job_market" in href or "jobmarket" in href:
+            return href
+    return None
+
+
+def search_personal_site(name, school):
+    """Search DuckDuckGo for a candidate's personal academic website."""
+    query = f'"{name}" {school} political science academic personal website'
+    personal_keywords = [
+        "github.io", "sites.google.com", ".co.uk", "scholars.harvard",
+        "wordpress.com", "wixsite.com", "squarespace.com", "weebly.com",
+        "academic.edu", "scholar.google", "people.umass", "faculty.",
+    ]
+    skip = ["linkedin.com", "twitter.com", "x.com", "facebook.com", "instagram.com"]
+    for href in _ddg_search(query):
+        if any(s in href for s in skip):
+            continue
+        if any(k in href for k in personal_keywords):
+            return href
+        # Accept any .edu personal path (e.g. /~name, /people/name)
+        if ".edu" in href and any(pat in href for pat in ["/~", "/personal/", name.lower().replace(" ", "")]):
+            return href
+    return None
 
 
 # ── GPT: extract candidates from department page ──────────────────────────────
@@ -149,25 +177,18 @@ SUBFIELD_DESCRIPTIONS = (
 )
 
 def extract_candidates(school_name, page_text, links):
-    # Format links as readable text for GPT
-    links_text = "\n".join(f'  "{anchor}" → {href}' for anchor, href in list(links.items())[:200])
-
     prompt = f"""This is the job market page for the {school_name} Political Science department.
 
 Extract all PhD job market candidates. For each return:
 - name: full name
 - subfield: classify into exactly one of: IR, CP, AP, Theory, Methods — based on their dissertation/research. {SUBFIELD_DESCRIPTIONS}
-- dissertation: dissertation title or research focus
+- dissertation: dissertation title or research focus (brief)
 - advisor: advisor name(s), or ""
-- site_url: URL to their personal website or CV page — look it up in the links list below by matching their name
 
 Return a JSON array. If no candidates found, return [].
 
 Page text:
-{page_text[:6000]}
-
-Links found on this page (anchor text → URL):
-{links_text}"""
+{page_text[:6000]}"""
 
     try:
         response = client.chat.completions.create(
@@ -454,9 +475,9 @@ def main(dry_run=False):
             print("  Skipping — could not fetch department page")
             continue
 
-        # Cache discovered dept URL
-        if not dry_run:
-            seen.setdefault("_dept_urls", {})[short] = dept_url
+        # Always cache discovered dept URL immediately
+        seen.setdefault("_dept_urls", {})[short] = dept_url
+        save_seen(seen)
 
         candidates = extract_candidates(school_name, page_text, links)
         print(f"  {len(candidates)} candidates on page")
@@ -473,20 +494,24 @@ def main(dry_run=False):
 
             prev = school_seen.get(name, {})
 
-            # Reuse cached site_url for known candidates; use GPT-extracted one for new ones
-            site_url = prev.get("site_url") or c.get("site_url", "")
-
+            # Use cached site_url; otherwise search for personal website
+            site_url = prev.get("site_url", "")
             print(f"  → {name}", end="")
 
             papers = {"pub_count": 0, "journals": [], "wp_count": 0}
+            if not site_url:
+                site_url = search_personal_site(name, school_name) or ""
+                if site_url:
+                    print(f" (found via search)", end="")
+
             if site_url:
-                site_text, _site_links = fetch_page(site_url)
+                site_text, _ = fetch_page(site_url)
                 if site_text:
                     papers = extract_papers(name, site_text)
                     print(f" — {papers['pub_count']} pubs · {papers['wp_count']} WPs", end="")
                 time.sleep(1)
             else:
-                print(" — no site URL", end="")
+                print(" — no site found", end="")
             print()
 
             pub_count = papers["pub_count"]
@@ -515,12 +540,13 @@ def main(dry_run=False):
                 "delta": delta,
             })
 
-            if not dry_run:
-                school_seen[name] = {
-                    "site_url":  site_url,
-                    "pub_count": pub_count,
-                    "wp_count":  wp_count,
-                }
+            # Always save URLs immediately so a crash mid-run doesn't lose discovered sites
+            school_seen[name] = {
+                "site_url":  site_url,
+                "pub_count": pub_count if not dry_run else prev.get("pub_count", 0),
+                "wp_count":  wp_count  if not dry_run else prev.get("wp_count", 0),
+            }
+            save_seen(seen)
 
             time.sleep(1)
 
@@ -541,7 +567,6 @@ def main(dry_run=False):
         return
 
     send_email(all_by_school)
-    save_seen(seen)
     print("Done.")
 
 
